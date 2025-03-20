@@ -1,318 +1,210 @@
 # Persona Agent
 
-A flexible and powerful framework for creating AI persona agents using AutoGen with Model Context Protocol (MCP) integration.
+A Python-based API server for creating and interacting with AI personas using the AutoGen framework and Model Context Protocol (MCP) tools integration.
 
 ## Overview
 
-Persona Agent is an open-source framework that enables the creation of AI agents capable of simulating specific personas with customizable personalities, knowledge domains, and behaviors. The framework leverages AutoGen for agent creation and integrates with the Model Context Protocol (MCP) to provide agents with access to external tools and resources.
+This project provides a robust API for creating AI personas that can interact with users through natural language. Built on top of AutoGen 0.4, it allows for the creation of agents that can use external tools and services through the Model Context Protocol (MCP) to enhance their capabilities.
 
 ## Features
 
-- **Customizable Personas**: Create detailed persona profiles with personality traits, knowledge domains, and language style.
-- **MCP Tool Integration**: Connect agents to Model Context Protocol (MCP) servers to access external tools and data sources.
-- **Multi-agent Conversations**: Support for multi-agent scenarios where personas can interact with each other.
-- **Flexible Deployment**: Run agents via CLI, HTTP API, or WebSocket server.
-- **Extensible Architecture**: Easy to extend with new capabilities and integrations.
+- **Persona-based AI Agents**: Create and interact with AI agents that simulate specific personas
+- **Model Context Protocol Integration**: Enhance AI capabilities with external tools through MCP
+- **RESTful API**: Provides a comprehensive REST API for managing personas, agents, and conversations
+- **Tool-Augmented Responses**: Enable agents to use external tools to respond to user queries
+- **Configurable Behavior**: Customize persona characteristics through configuration files
+- **AutoGen 0.4 Support**: Compatible with the latest AutoGen framework features
 
 ## Architecture
 
-The project is organized into the following main components:
+The project is organized into several key components:
 
-- **Core**: Contains the main `PersonaAgent` class and `PersonaProfile` for defining agent characteristics.
-- **MCP**: Modules for integrating with Model Context Protocol, with multiple implementation strategies.
-- **Tools**: Adapters for using external tools with personas.
-- **API**: HTTP and WebSocket interfaces for interacting with agents.
-- **CLI**: Command-line interface for running and managing agents.
+- **API Server**: FastAPI implementation for the REST API endpoints
+- **Persona Management**: Load and manage persona definitions from JSON/YAML files
+- **Agent Factory**: Create and configure AutoGen agents based on personas
+- **MCP Integration**: Connect to external MCP services for enhanced capabilities
+- **Session Management**: Handle conversation sessions between users and agents
 
 ## Installation
 
-### Prerequisites
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/memenow/persona-agent.git
+   cd persona-agent
+   ```
 
-- Python 3.10 or higher
-- pip (Python package installer)
+2. Create a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-### Basic Installation
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Configure API keys:
+   Create a `config/llm_config.json` file with your API keys and model configurations:
+   ```json
+   {
+     "default_model": "gpt-4o",
+     "api_key": "your-api-key-here",
+     "api_base": "https://api.openai.com/v1"
+   }
+   ```
+
+## Usage
+
+### Running the API Server
+
+Start the API server using the provided script:
 
 ```bash
-# Clone the repository
-git clone https://github.com/memenow/persona_agent.git
-cd persona-agent
-
-# Install the package
-pip install -e .
+python run_api_server.py
 ```
 
-### Installing with MCP support
+The API will be available at http://localhost:8000/api/v1/ with Swagger documentation at http://localhost:8000/docs.
 
-To use MCP integration features, install with additional dependencies:
+### API Endpoints
 
-```bash
-pip install -e ".[mcp]"
-# Or
-pip install -U "autogen-ext[mcp]"
-```
+#### Personas API
 
-## Configuration
+- `GET /api/v1/personas`: List all available personas
+- `GET /api/v1/personas/{id}`: Get a specific persona's details
+- `POST /api/v1/personas`: Create a new persona
+- `PUT /api/v1/personas/{id}`: Update an existing persona
+- `DELETE /api/v1/personas/{id}`: Delete a persona
+
+#### Agents API
+
+- `GET /api/v1/agents`: List all active agents
+- `GET /api/v1/agents/{id}`: Get a specific agent's details
+- `POST /api/v1/agents`: Create a new agent based on a persona
+- `DELETE /api/v1/agents/{id}`: Delete an agent
+
+#### Sessions API
+
+- `GET /api/v1/sessions`: List all active sessions
+- `GET /api/v1/sessions/{id}`: Get a specific session's details
+- `POST /api/v1/sessions`: Create a new conversation session
+- `DELETE /api/v1/sessions/{id}`: Delete a session
+- `POST /api/v1/sessions/{id}/messages`: Send a message to an agent
+- `GET /api/v1/sessions/{id}/messages`: Get all messages in a session
 
 ### Persona Configuration
 
-Personas are defined using YAML or JSON files with the following structure:
-
-```yaml
-name: "Albert Einstein"
-description: "A simulation of the famous physicist"
-personal_background:
-  birth: "March 14, 1879, Ulm, Germany"
-  education: "PhD in Physics from University of Zurich"
-  occupation: "Theoretical Physicist"
-language_style:
-  tone: "Thoughtful and philosophical"
-  complexity: "Uses analogies to explain complex concepts"
-knowledge_domains:
-  physics:
-    - "Theory of Relativity"
-    - "Photoelectric Effect"
-    - "Brownian Motion"
-  philosophy:
-    - "Scientific Determinism"
-    - "Pacifism"
-interaction_samples:
-  - type: "scientific_explanation"
-    content: "When you sit with a nice girl for two hours, it seems like minutes; when you sit on a hot stove for a minute, it seems like hours. That's relativity."
-```
-
-### MCP Configuration
-
-MCP servers are configured in a JSON file located at `config/mcp_config.json`:
+Personas can be defined in JSON or YAML format:
 
 ```json
 {
-  "mcpServers": {
-    "memory-server": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "autoApprove": ["create_entities", "read_graph"]
-    },
-    "web-search": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-      "autoApprove": ["brave_web_search"]
-    }
-  }
-}
-```
-
-### LLM Configuration
-
-Language models are configured in `config/llm_config.json`:
-
-```json
-{
-  "model_configs": [
+  "name": "Albert Einstein",
+  "description": "Theoretical physicist and Nobel laureate",
+  "personal_background": {
+    "birth": "March 14, 1879, Ulm, Germany",
+    "education": "ETH Zurich, University of Zurich",
+    "profession": "Physicist, Professor"
+  },
+  "language_style": {
+    "tone": "Thoughtful, inquisitive, sometimes whimsical",
+    "common_phrases": ["Imagination is more important than knowledge", "Everything should be made as simple as possible, but not simpler"]
+  },
+  "knowledge_domains": {
+    "physics": ["Relativity theory", "Quantum mechanics", "Brownian motion"],
+    "philosophy": ["Scientific determinism", "Pacifism", "Religious views"]
+  },
+  "interaction_samples": [
     {
-      "model": "gpt-4o",
-      "api_key": "your-api-key-here",
-      "temperature": 0.7
+      "type": "conversation",
+      "content": "Q: What is the most important scientific principle?\nA: The principle of curiosity - to never stop questioning. That is the source of all knowledge and discovery."
     }
   ]
 }
 ```
 
-## Usage Examples
+### MCP Configuration
 
-### Creating a Persona Agent
-
-```python
-from persona_agent.core.persona_profile import PersonaProfile
-from persona_agent.core.persona_agent import PersonaAgent
-
-# Create a persona profile
-profile = PersonaProfile(
-    name="Sherlock Holmes",
-    description="The famous detective from Baker Street",
-    personal_background={
-        "occupation": "Consulting Detective",
-        "residence": "221B Baker Street, London"
-    },
-    language_style={
-        "tone": "Analytical and sometimes condescending",
-        "phrases": "Elementary, my dear Watson"
-    },
-    knowledge_domains={
-        "detection": ["Deductive reasoning", "Forensic science"],
-        "criminology": ["Victorian era crime patterns"]
-    }
-)
-
-# Create an agent from the profile
-agent = PersonaAgent(profile=profile)
-
-# Chat with the agent
-response = agent.chat("Tell me about your methods of deduction.")
-print(response)
-```
-
-### Loading a Persona from a File
-
-```python
-from persona_agent.core.persona_agent import PersonaAgent
-
-# Load a persona from a YAML file
-agent = PersonaAgent.load_persona("examples/personas/einstein.yaml")
-
-# Chat with the agent
-response = agent.chat("Can you explain relativity in simple terms?")
-print(response)
-```
-
-### Enabling MCP Tools
-
-```python
-import json
-from persona_agent.core.persona_agent import PersonaAgent
-
-# Load a persona
-agent = PersonaAgent.load_persona("examples/personas/tesla.yaml")
-
-# Load MCP configuration
-with open("config/mcp_config.json", "r") as f:
-    mcp_config = json.load(f)
-
-# Enable MCP tools
-agent.enable_mcp_tools(mcp_config)
-
-# Now the agent can use tools from MCP servers
-response = agent.chat("Search for recent breakthroughs in renewable energy.")
-print(response)
-```
-
-### Running the HTTP API
-
-```bash
-# Run the HTTP API server
-python -m persona_agent.http_api --port 8000
-```
-
-### Running the WebSocket Server
-
-```bash
-# Run the WebSocket server
-python -m persona_agent.websocket_server --port 8001
-```
-
-## MCP Integration
-
-The framework supports integration with the Model Context Protocol (MCP), which allows persona agents to access external tools and resources from MCP servers. There are three implementation strategies:
-
-1. **Primary Implementation**: Uses `autogen-ext[mcp]` for direct integration with MCP servers.
-2. **Direct Connector**: A standalone implementation that works without external dependencies.
-3. **Compatibility Layer**: For older code that uses the legacy interface.
-
-To use MCP features:
-
-1. Install required dependencies: `pip install -U "autogen-ext[mcp]"`
-2. Configure MCP servers in `config/mcp_config.json`
-3. Enable MCP tools on your agent using `agent.enable_mcp_tools(mcp_config)`
-
-## API Reference
-
-### Core Classes
-
-- `PersonaProfile`: Represents a persona's characteristics, knowledge, and behavior.
-- `PersonaAgent`: The main agent class that simulates a persona using AutoGen.
-
-### MCP Classes
-
-- `MCPToolAdapter`: Adapts MCP tools for use with persona agents.
-- `DirectMCPConnector`: A direct implementation of MCP client functionality.
-
-### Utility Functions
-
-- `load_mcp_config()`: Load MCP configuration from a file.
-- `get_available_servers()`: Get a list of available MCP servers.
-- `use_mcp_tool()`: Execute an MCP tool directly.
-
-## Development
-
-### Project Structure
-
-```
-persona_agent/
-├── core/              # Core agent functionality
-│   ├── persona_agent.py
-│   └── persona_profile.py
-├── mcp/               # MCP integration
-│   ├── direct_connector.py
-│   ├── mcp.py
-│   ├── server_config.py
-│   └── tool_adapter.py
-├── tools/             # Tool adapters
-│   ├── mcp_connector.py
-│   └── mcp_tool_registry.py
-├── utils/             # Utility functions
-├── api.py             # API interface
-├── cli.py             # Command-line interface
-├── http_api.py        # HTTP API server
-└── websocket_server.py # WebSocket server
-```
-
-### Extending the Framework
-
-#### Adding Custom Tools
-
-1. Create a function that implements the tool logic
-2. Register the tool with the agent's tool adapter
-3. Update the agent's system message to include the new tool
-
-Example:
-
-```python
-def custom_tool(param1: str, param2: int) -> Dict[str, Any]:
-    """A custom tool that does something useful.
-    
-    Args:
-        param1: A string parameter.
-        param2: An integer parameter.
-        
-    Returns:
-        The result of the tool execution.
-    """
-    result = do_something(param1, param2)
-    return {"result": result}
-
-# Register with the agent
-agent.tool_adapter.register_tool(
-    server_name="custom_server",
-    tool_name="custom_tool",
-    description="A custom tool that does something useful",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "param1": {"type": "string"},
-            "param2": {"type": "integer"}
-        },
-        "required": ["param1", "param2"]
-    }
-)
-```
-
-#### Adding a New MCP Server
-
-1. Create a server configuration in `config/mcp_config.json`
-2. Install and run the MCP server
-3. Enable the server's tools on your agent
+To configure MCP services, create a `config/mcp_config.json` file:
 
 ```json
 {
   "mcpServers": {
-    "my-new-server": {
-      "command": "npx",
-      "args": ["-y", "my-mcp-server-package"],
-      "autoApprove": ["tool1", "tool2"]
+    "brave_search": {
+      "command": "node",
+      "args": ["path/to/mcp-brave-search/index.js"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      },
+      "description": "Brave Search MCP service"
     }
   }
 }
 ```
+
+Environment variables in the configuration (like `${BRAVE_API_KEY}`) will be automatically resolved at runtime.
+
+## Project Structure
+
+```
+persona-agent/
+├── config/                  # Configuration files
+│   ├── llm_config.json      # LLM API keys and settings
+│   └── mcp_config.json      # MCP services configuration
+├── examples/                # Example code and personas
+│   └── personas/            # Example persona definitions
+├── src/                     # Source code
+│   └── persona_agent/       # Main package
+│       ├── api/             # API implementation
+│       │   ├── routes/      # API route handlers
+│       │   ├── agent_factory.py # Agent creation factory
+│       │   ├── config.py    # API configuration
+│       │   ├── dependencies.py  # FastAPI dependencies
+│       │   ├── models.py    # Pydantic API models
+│       │   ├── persona_manager.py # Persona data management
+│       │   └── server.py    # FastAPI server
+│       ├── core/            # Core functionality
+│       ├── mcp/             # MCP integration
+│       └── cli.py           # Command-line interface
+├── tests/                   # Test suite
+├── run_api_server.py        # Server startup script
+├── requirements.txt         # Project dependencies
+└── LICENSE                  # License
+```
+
+## Development
+
+### Setting Up Development Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/memenow/persona-agent.git
+cd persona-agent
+
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -r requirements.txt
+pip install pytest pytest-asyncio black isort mypy
+
+# Run tests
+pytest
+```
+
+### Adding New MCP Services
+
+1. Create a new MCP service implementation
+2. Add the service configuration to `config/mcp_config.json`
+3. The service will be automatically loaded by the `McpManager` class
+
+### Extending Personas
+
+To add new persona capabilities:
+
+1. Enhance the `PersonaProfile` class in `src/persona_agent/core/persona_profile.py`
+2. Update the persona JSON/YAML schema accordingly
+3. Update the API models in `src/persona_agent/api/models.py`
 
 ## License
 

@@ -6,7 +6,7 @@ knowledge domains, and behavioral patterns.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Any
 
 
 @dataclass
@@ -68,13 +68,40 @@ class PersonaProfile:
         Returns:
             A PersonaProfile instance.
         """
+        # Handle special case for knowledge_domains
+        knowledge_domains = data.get("knowledge_domains", {})
+        
+        # If knowledge_domains is a list, convert it to dictionary format
+        if isinstance(knowledge_domains, list):
+            converted_domains = {}
+            for domain_item in knowledge_domains:
+                if isinstance(domain_item, dict):
+                    name = domain_item.get("name", "domain")
+                    topics = domain_item.get("topics", [])
+                    converted_domains[name] = topics
+            knowledge_domains = converted_domains
+        
+        # Handle special case for interaction_samples
+        interaction_samples = data.get("interaction_samples", [])
+        
+        # Convert new interaction_samples format to old format
+        converted_samples = []
+        for sample in interaction_samples:
+            if isinstance(sample, dict) and "user_query" in sample and "response" in sample:
+                converted_samples.append({
+                    "type": "conversation",
+                    "content": f"Q: {sample['user_query']}\nA: {sample['response']}"
+                })
+            else:
+                converted_samples.append(sample)
+                
         return cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
             personal_background=data.get("personal_background", {}),
             language_style=data.get("language_style", {}),
-            knowledge_domains=data.get("knowledge_domains", {}),
-            interaction_samples=data.get("interaction_samples", []),
+            knowledge_domains=knowledge_domains,
+            interaction_samples=converted_samples,
             metadata=data.get("metadata", {}),
         )
     

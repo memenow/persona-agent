@@ -1,289 +1,127 @@
-#!/usr/bin/env python3
-"""Command-line interface for Persona Agent.
+"""Command-line interface for the persona agent system.
 
-This module provides command-line utilities for running the persona agent
-service, both as a Python API and as an HTTP server.
+This module provides the command-line interface for interacting with the persona agent system,
+including commands for starting the API server, managing personas, and utility functions.
 """
 
 import argparse
-import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional, Union
+import json
+import yaml
 
-from persona_agent import __version__
-from persona_agent.api import (
-    create_persona,
-    chat,
-    list_personas,
-    load_persona_from_file,
-    save_persona,
-    get_persona_info,
-    get_persona_tools,
-    PersonaAgentAPI,
-)
-from persona_agent.http_api import run_server
-from persona_agent.llm_config import load_config as load_llm_config
+from src.persona_agent.api.config import ApiConfig, load_config
+from src.persona_agent.api.server import run_server
+from src.persona_agent.api.persona_manager import PersonaManager, Persona
 
 
-def setup_logging(level: int = logging.INFO) -> None:
-    """Set up logging for the CLI.
+def start_api():
+    """Start the API server.
+    
+    This function loads the API configuration and starts the API server
+    using the configured host and port settings.
+    """
+    # Load configuration
+    config = load_config()
+    print(f"Starting Persona Agent API server at {config.host}:{config.port}")
+    
+    # Run the server
+    run_server(config)
+
+
+def list_personas():
+    """List all available personas.
+    
+    This function displays a list of all personas available in the system,
+    showing their ID, name, and description.
+    """
+    config = load_config()
+    persona_manager = PersonaManager(config.personas_dir)
+    
+    personas = persona_manager.list_personas()
+    if not personas:
+        print("No personas found.")
+        return
+    
+    print(f"Found {len(personas)} personas:")
+    for i, persona in enumerate(personas, 1):
+        print(f"{i}. {persona['id']}: {persona['name']} - {persona['description']}")
+
+
+def import_persona(file_path: str):
+    """Import a persona from a file.
+    
+    This function imports a persona definition from a JSON or YAML file
+    into the system's persona storage.
     
     Args:
-        level: The logging level to use.
+        file_path: Path to the JSON or YAML file containing the persona definition.
     """
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()],
-    )
+    if not os.path.exists(file_path):
+        print(f"Error: File {file_path} does not exist.")
+        return
+    
+    config = load_config()
+    persona_manager = PersonaManager(config.personas_dir)
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            if file_path.endswith('.json'):
+                persona_data = json.load(f)
+            elif file_path.endswith('.yaml') or file_path.endswith('.yml'):
+                persona_data = yaml.safe_load(f)
+            else:
+                print("Error: File must be a JSON or YAML file.")
+                return
+        
+        # Create the persona
+        persona = persona_manager.add_persona(persona_data)
+        
+        # Save the persona to a file
+        saved_path = persona_manager.save_persona(persona, format='json')
+        
+        print(f"Successfully imported persona: {persona.name} (ID: {persona.id})")
+        print(f"Saved to: {saved_path}")
+    
+    except Exception as e:
+        print(f"Error importing persona: {str(e)}")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
+def main():
+    """Execute the command-line interface.
     
-    Returns:
-        Parsed command-line arguments.
+    This function parses command-line arguments and dispatches to the appropriate
+    handler function based on the specified command.
+    
+    Commands:
+        api: Start the API server
+        list: List all available personas
+        import: Import a persona from a file
     """
-    parser = argparse.ArgumentParser(
-        description="Persona Agent CLI",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
+    parser = argparse.ArgumentParser(description="Persona Agent CLI")
+    subparsers = parser.add_subparsers(dest='command', help='Command to run')
     
-    parser.add_argument(
-        "--version", "-v",
-        action="version",
-        version=f"Persona Agent v{__version__}",
-    )
-    
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug logging",
-    )
-    
-    parser.add_argument(
-        "--llm-config",
-        type=str,
-        default=os.path.join("config", "llm_config.json"),
-        help="Path to the LLM configuration file",
-    )
-    
-    parser.add_argument(
-        "--mcp-config",
-        type=str,
-        default=os.path.join("config", "mcp_config.json"),
-        help="Path to the MCP configuration file",
-    )
-    
-    # Create subparsers for different commands
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
-    
-    # Server command
-    server_parser = subparsers.add_parser(
-        "server",
-        help="Run the HTTP API server",
-    )
-    server_parser.add_argument(
-        "--host",
-        type=str,
-        default="0.0.0.0",
-        help="Host to run the server on",
-    )
-    server_parser.add_argument(
-        "--port",
-        type=int,
-        default=5000,
-        help="Port to run the server on",
-    )
-    
-    # Create persona command
-    create_parser = subparsers.add_parser(
-        "create",
-        help="Create a new persona",
-    )
-    create_parser.add_argument(
-        "profile",
-        type=str,
-        help="Path to the persona profile file (YAML or JSON)",
-    )
-    create_parser.add_argument(
-        "--id",
-        type=str,
-        help="Unique identifier for the persona",
-    )
-    create_parser.add_argument(
-        "--model",
-        type=str,
-        help="Name of the LLM model to use",
-    )
-    create_parser.add_argument(
-        "--no-mcp",
-        action="store_true",
-        help="Disable MCP tools",
-    )
-    
-    # Chat command
-    chat_parser = subparsers.add_parser(
-        "chat",
-        help="Chat with a persona",
-    )
-    chat_parser.add_argument(
-        "persona_id",
-        type=str,
-        help="ID of the persona to chat with",
-    )
-    chat_parser.add_argument(
-        "message",
-        type=str,
-        help="Message to send to the persona",
-    )
+    # API server command
+    api_parser = subparsers.add_parser('api', help='Start the API server')
     
     # List personas command
-    list_parser = subparsers.add_parser(
-        "list",
-        help="List all available personas",
-    )
+    list_parser = subparsers.add_parser('list-personas', help='List all available personas')
     
-    # Save persona command
-    save_parser = subparsers.add_parser(
-        "save",
-        help="Save a persona to a file",
-    )
-    save_parser.add_argument(
-        "persona_id",
-        type=str,
-        help="ID of the persona to save",
-    )
-    save_parser.add_argument(
-        "file_path",
-        type=str,
-        help="Path to save the persona to",
-    )
+    # Import persona command
+    import_parser = subparsers.add_parser('import-persona', help='Import a persona from a file')
+    import_parser.add_argument('file', help='Path to the persona file (JSON or YAML)')
     
-    # Load persona command
-    load_parser = subparsers.add_parser(
-        "load",
-        help="Load a persona from a file",
-    )
-    load_parser.add_argument(
-        "file_path",
-        type=str,
-        help="Path to load the persona from",
-    )
-    load_parser.add_argument(
-        "--id",
-        type=str,
-        help="ID to assign to the loaded persona",
-    )
-    load_parser.add_argument(
-        "--model",
-        type=str,
-        help="Name of the LLM model to use",
-    )
-    load_parser.add_argument(
-        "--no-mcp",
-        action="store_true",
-        help="Disable MCP tools",
-    )
+    args = parser.parse_args()
     
-    return parser.parse_args()
-
-
-def main() -> None:
-    """Run the CLI application."""
-    args = parse_args()
-    
-    # Set up logging
-    log_level = logging.DEBUG if args.debug else logging.INFO
-    setup_logging(log_level)
-    
-    # Load LLM configuration
-    if os.path.exists(args.llm_config):
-        try:
-            load_llm_config(args.llm_config)
-            logging.info(f"Loaded LLM configuration from {args.llm_config}")
-        except Exception as e:
-            logging.error(f"Failed to load LLM configuration: {str(e)}")
-            sys.exit(1)
+    if args.command == 'api':
+        start_api()
+    elif args.command == 'list-personas':
+        list_personas()
+    elif args.command == 'import-persona':
+        import_persona(args.file)
     else:
-        logging.warning(f"LLM configuration file not found: {args.llm_config}")
-    
-    # Load MCP configuration
-    if os.path.exists(args.mcp_config):
-        try:
-            # Create API instance to load MCP config
-            api = PersonaAgentAPI()
-            api.mcp_config = args.mcp_config
-            logging.info(f"Loaded MCP configuration from {args.mcp_config}")
-        except Exception as e:
-            logging.error(f"Failed to load MCP configuration: {str(e)}")
-            sys.exit(1)
-    
-    # Handle commands
-    if args.command == "server":
-        logging.info(f"Starting HTTP API server on {args.host}:{args.port}")
-        run_server(host=args.host, port=args.port, debug=args.debug)
-    
-    elif args.command == "create":
-        try:
-            persona_id = create_persona(
-                profile=args.profile,
-                persona_id=args.id,
-                model_name=args.model,
-                enable_mcp_tools=not args.no_mcp,
-            )
-            print(f"Created persona: {persona_id}")
-        except Exception as e:
-            logging.error(f"Failed to create persona: {str(e)}")
-            sys.exit(1)
-    
-    elif args.command == "chat":
-        try:
-            response = chat(args.persona_id, args.message)
-            print(f"{args.persona_id}: {response}")
-        except Exception as e:
-            logging.error(f"Failed to chat with persona: {str(e)}")
-            sys.exit(1)
-    
-    elif args.command == "list":
-        try:
-            personas = list_personas()
-            if not personas:
-                print("No personas available")
-            else:
-                print("Available personas:")
-                for persona in personas:
-                    print(f"  {persona['id']}: {persona['name']} - {persona['description']}")
-        except Exception as e:
-            logging.error(f"Failed to list personas: {str(e)}")
-            sys.exit(1)
-    
-    elif args.command == "save":
-        try:
-            save_persona(args.persona_id, args.file_path)
-            print(f"Saved persona {args.persona_id} to {args.file_path}")
-        except Exception as e:
-            logging.error(f"Failed to save persona: {str(e)}")
-            sys.exit(1)
-    
-    elif args.command == "load":
-        try:
-            persona_id = load_persona_from_file(
-                file_path=args.file_path,
-                persona_id=args.id,
-                llm_config={"model": args.model} if args.model else None,
-                enable_mcp_tools=not args.no_mcp,
-            )
-            print(f"Loaded persona: {persona_id}")
-        except Exception as e:
-            logging.error(f"Failed to load persona: {str(e)}")
-            sys.exit(1)
-    
-    else:
-        logging.error("No command specified")
-        sys.exit(1)
+        parser.print_help()
 
 
 if __name__ == "__main__":
-    main()
+    main() 
