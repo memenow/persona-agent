@@ -1,20 +1,27 @@
-"""MCP (Model Context Protocol) module.
+"""Model Context Protocol (MCP) integration package.
 
-This module provides utilities for working with the Model Context Protocol (MCP),
-which enables the persona agent to interact with external tools and services.
+This package provides integration with Model Context Protocol (MCP) services and tools,
+allowing AI agents to use external tools and services to enhance their capabilities.
 """
 
-# Import MCP-related modules for easier access
-from persona_agent.mcp.server_config import (
-    load_mcp_config,
-    save_mcp_config,
-    get_available_servers,
-    get_auto_approved_tools,
-)
-from persona_agent.mcp.tool_adapter import (
-    MCPToolAdapter,
-    create_tool_decorators,
-)
+from typing import Dict, Any, List, Optional
 
-# Version
-__version__ = "0.1.0"
+# Import MCP-related classes for easier access
+try:
+    from .mcp_manager import McpManager, McpService, sync_register_mcp_tools_for_agent
+    from .tool_adapter import MCPToolAdapter
+    
+    __all__ = [
+        "McpManager",
+        "McpService",
+        "MCPToolAdapter",
+        "sync_register_mcp_tools_for_agent",
+    ]
+except ImportError as e:
+    import logging
+    logging.warning(f"Failed to import MCP components: {e}")
+    __all__ = []
+
+
+
+

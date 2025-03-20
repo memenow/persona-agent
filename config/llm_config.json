@@ -1,11 +1,13 @@
 {
-  "default_model": "gpt-4o",
+  "default_model": "gpt-4o-mini",
+  "api_key": "",
+  "api_base": "https://api.openai.com/v1",
   "model_configs": [
     {
-      "name": "gpt-4o",
+      "name": "gpt-4o-mini",
       "api_key": "",
       "api_base": "https://api.openai.com/v1",
-      "model": "gpt-4o",
+      "model": "gpt-4o-mini",
       "temperature": 0.7,
       "max_tokens": 4000,
       "top_p": 1.0,
@@ -14,7 +16,7 @@
     }
   ],
   "api_settings": {
-    "timeout": 60,
+    "timeout": 120,
     "retry_attempts": 3,
     "retry_delay": 2,
     "log_requests": true,

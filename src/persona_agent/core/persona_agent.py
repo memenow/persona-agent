@@ -7,14 +7,28 @@ capable of simulating a specific persona using the AutoGen framework.
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Union
+import inspect
 
-import autogen_agentchat as autogen
-from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+# Import AutoGen 0.4
+import autogen
+from autogen import AssistantAgent, UserProxyAgent
+from autogen_core import CancellationToken
+from asyncio import CancelledError as AutoGenCancelledError
 
 from persona_agent.core.persona_profile import PersonaProfile
 from persona_agent.mcp.tool_adapter import MCPToolAdapter
+
+# Define constants to avoid hardcoding
+DEFAULT_CONFIG_PATH = "config"
+LLM_CONFIG_FILENAME = "llm_config.json"
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_MAX_TOKENS = 4000
+DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_TIMEOUT = 30
+DEFAULT_FALLBACK_PROMPT = "I'm sorry, I'm having trouble connecting right now. Could you please repeat your message or try again in a moment?"
 
 
 class PersonaAgent:
@@ -39,6 +53,7 @@ class PersonaAgent:
         system_message: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_adapter: Optional[MCPToolAdapter] = None,
+        config_path: Optional[str] = None,
     ):
         """Initialize a new PersonaAgent.
         
@@ -48,11 +63,13 @@ class PersonaAgent:
             system_message: Custom system message for the agent.
             tools: Optional list of tool configurations to register.
             tool_adapter: Optional MCP tool adapter for tool integration.
+            config_path: Optional path to the configuration directory.
         """
         self.profile = profile
         self.tool_adapter = tool_adapter or MCPToolAdapter()
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"Creating PersonaAgent for {profile.name}")
+        self.config_path = config_path or DEFAULT_CONFIG_PATH
         
         # Register any provided tools
         if tools:
@@ -68,7 +85,7 @@ class PersonaAgent:
         
         # Create the AutoGen agent
         self._create_agent(llm_config, system_message)
-    
+        
     def _configure_llm(self, llm_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Configure the language model for the agent.
         
@@ -78,44 +95,127 @@ class PersonaAgent:
         Returns:
             Configured LLM settings dictionary.
         """
-        # If no LLM config is provided, or if there's no client in the provided config
-        if llm_config is None or "client" not in llm_config:
-            # Load API key from config file if available
-            api_key = None
-            try:
-                with open("config/llm_config.json", "r") as f:
+        # If LLM config is already provided with all necessary components, use it
+        if llm_config is not None and ("client" in llm_config or "api_key" in llm_config):
+            return llm_config
+            
+        # Load API key from config file if available
+        api_key = None
+        llm_config_path = os.path.join(self.config_path, LLM_CONFIG_FILENAME)
+        model_config = {}
+        
+        try:
+            if os.path.exists(llm_config_path):
+                with open(llm_config_path, "r") as f:
                     config_data = json.load(f)
                     model_configs = config_data.get("model_configs", [])
                     if model_configs:
-                        api_key = model_configs[0].get("api_key")
-            except (FileNotFoundError, json.JSONDecodeError, IndexError) as e:
-                self.logger.warning(f"Error loading config from file: {str(e)}")
-            
-            # Import OpenAI client if needed
-            try:
-                from autogen_ext.models.openai import OpenAIChatCompletionClient
-                
-                # Create a default OpenAI client
-                client = OpenAIChatCompletionClient(
-                    model="gpt-4o",
-                    temperature=0.7,
-                    api_key=api_key,
-                )
-                
-                # Use the client in the config
-                if llm_config is None:
-                    llm_config = {"client": client}
-                else:
-                    llm_config["client"] = client
-                    
-            except ImportError:
-                self.logger.warning("Failed to import OpenAIChatCompletionClient. Using default config.")
-                llm_config = {
-                    "model": "gpt-4o",
-                    "temperature": 0.7,
-                }
+                        # Use the first model config
+                        model_config = model_configs[0]
+                        api_key = model_config.get("api_key")
+                        # Get default model name from config or use a fallback
+                        default_model = config_data.get("default_model", DEFAULT_MODEL)
+        except (FileNotFoundError, json.JSONDecodeError, IndexError) as e:
+            self.logger.warning(f"Error loading config from file: {str(e)}")
+
+        if not api_key:
+            # Try environment variable as fallback
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("No API key found. Please provide an API key in llm_config.json or through the OPENAI_API_KEY environment variable.")
         
-        return llm_config
+        # Create AutoGen 0.4 compatible config
+        try:
+            # Determine if we're using AutoGen 0.4 or legacy
+            try:
+                import autogen_ext
+                from autogen_core.tools import Tool
+                is_autogen_v4 = True
+                self.logger.info("Detected AutoGen 0.4")
+            except ImportError:
+                is_autogen_v4 = False
+                self.logger.info("Using legacy AutoGen")
+            
+            # Configure for AutoGen 0.4
+            if is_autogen_v4:
+                # For AutoGen 0.4, we need a config without a client
+                # Extract parameters from the model config
+                temperature = model_config.get("temperature", DEFAULT_TEMPERATURE)
+                max_tokens = model_config.get("max_tokens", DEFAULT_MAX_TOKENS)
+                model_name = model_config.get("model", default_model)
+                
+                # Create a config compatible with AutoGen 0.4
+                result_config = {
+                    "config_list": [
+                        {
+                            "model": model_name,
+                            "api_key": api_key,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens
+                        }
+                    ]
+                }
+                
+                # If a base LLM config was provided, merge with our values
+                if llm_config is not None:
+                    # Don't overwrite our critical values
+                    for key, value in llm_config.items():
+                        if key not in ["config_list", "api_key"]:
+                            result_config[key] = value
+                
+                self.logger.info(f"Configured LLM using AutoGen 0.4 format with model {model_name}")
+                return result_config
+            else:
+                # Legacy AutoGen: Try to import from autogen_ext first as a fallback
+                try:
+                    from autogen_ext.models.openai import OpenAIChatCompletionClient
+                    self.logger.info("Using OpenAIChatCompletionClient from autogen_ext.models.openai")
+                    
+                    # For legacy AutoGen, use a config dict instead of a client object
+                    # This avoids JSON serialization issues
+                    config = {
+                        "model": model_config.get("model", default_model),
+                        "temperature": model_config.get("temperature", 0.7),
+                        "api_key": api_key,
+                    }
+                    
+                    # Use the config dict in the llm_config
+                    if llm_config is None:
+                        return config
+                    else:
+                        # Merge with existing config
+                        for key, value in config.items():
+                            llm_config[key] = value
+                        return llm_config
+                        
+                except ImportError:
+                    # Fall back to standard autogen
+                    try:
+                        import autogen
+                        from autogen.oai import OpenAIWrapper
+                        self.logger.info("Using OpenAIWrapper from autogen.oai")
+                        
+                        # For legacy AutoGen, set environment variable and use wrapper
+                        os.environ["OPENAI_API_KEY"] = api_key
+                        
+                        # Create a config with necessary parameters for OpenAIWrapper
+                        if llm_config is None:
+                            llm_config = {}
+                        
+                        llm_config["model"] = model_config.get("model", default_model)
+                        llm_config["temperature"] = model_config.get("temperature", 0.7) 
+                        llm_config["api_key"] = api_key
+                        
+                        return llm_config
+                    except ImportError:
+                        self.logger.error("Neither autogen_ext nor autogen is available. Cannot create OpenAI client.")
+                        raise ImportError("No suitable OpenAI client implementation found")
+                        
+        except Exception as e:
+            self.logger.error(f"Error configuring LLM: {str(e)}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
     
     def _create_agent(self, llm_config: Dict[str, Any], system_message: str) -> None:
         """Create the AutoGen agent and user proxy.
@@ -127,362 +227,372 @@ class PersonaAgent:
         # Convert our function_map to tools for the new API format
         tools = list(self.tool_adapter.get_function_map().values())
         
-        # Extract the model client from the llm_config
-        model_client = llm_config.get("client")
-        
         # Create a valid Python identifier for the agent name
-        # Replace spaces with underscores and remove any non-alphanumeric characters
         valid_name = re.sub(r'\W', '', self.profile.name.replace(' ', '_'))
         
-        # Use the persona's name in the description to maintain the identity
-        self.agent = AssistantAgent(
-            name=valid_name,
-            description=f"Agent simulating {self.profile.name}",
-            model_client=model_client,
-            system_message=system_message,
-            tools=tools,
-        )
+        # Check if llm_config contains a client object which is not JSON serializable
+        # If it does, we need to convert it to a serializable configuration
+        if "client" in llm_config and hasattr(llm_config["client"], "__class__"):
+            self.logger.info("Converting client object to serializable configuration")
+            # Extract basic parameters from the client for a serializable config
+            client = llm_config.pop("client")
+            
+            # Get client attributes in a safe way
+            def safe_get_attr(obj, attr, default=None):
+                try:
+                    return getattr(obj, attr, default)
+                except Exception:
+                    return default
+            
+            # Create a serializable configuration
+            model = safe_get_attr(client, "model", "gpt-4o-mini")
+            temperature = safe_get_attr(client, "temperature", 0.7)
+            max_tokens = safe_get_attr(client, "max_tokens", 4000)
+            
+            # Create a new config without the client object
+            base_url = safe_get_attr(client, "base_url", None)
+            api_key = safe_get_attr(client, "api_key", os.environ.get("OPENAI_API_KEY"))
+            
+            # Use AutoGen 0.4 config_list format
+            llm_config = {
+                "config_list": [
+                    {
+                        "model": model,
+                        "api_key": api_key,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens
+                    }
+                ]
+            }
+            
+            if base_url:
+                llm_config["config_list"][0]["base_url"] = base_url
         
-        # Create a UserProxyAgent for handling user interactions
+        # Create the assistant agent
+        self.logger.info(f"Creating assistant agent for {self.profile.name} using factory")
+        self.agent = AssistantAgent(
+            name=valid_name,  # Use the validated name
+            system_message=system_message,
+            llm_config=llm_config
+        )
+        if tools:
+            self.agent.register_function_map({tool.__name__: tool for tool in tools})
+
+        
+        # Create the user proxy agent
+        self.logger.info("Creating user proxy agent using factory")
         self.user_proxy = UserProxyAgent(
             name="user_proxy",
-            description="A user interacting with the persona agent",
+            human_input_mode = "NEVER",
+            code_execution_config = False,
         )
         
         self.logger.info(f"Created PersonaAgent for {self.profile.name}")
     
     def _generate_system_message(self) -> str:
-        """Generate a system message based on the persona profile.
+        """Generate system message for the agent.
+        
+        Uses information from the persona profile and configuration to generate a system message.
         
         Returns:
-            A detailed system message for the LLM.
+            str: The system message text.
         """
-        # Background section
-        background = "# Background Information\n"
-        for key, value in self.profile.personal_background.items():
-            background += f"- {key}: {value}\n"
+        # Start building the system message
+        base_system_message = f"You are {self.profile.name}, an AI assistant."
         
-        # Language style section
-        language = "# Language and Expression Style\n"
-        for key, value in self.profile.language_style.items():
-            language += f"- {key}: {value}\n"
+        # Add personal background information
+        if hasattr(self.profile, "personal_background") and self.profile.personal_background:
+            # Check if personal background is a string or dictionary
+            if isinstance(self.profile.personal_background, str):
+                # Directly add string background
+                base_system_message += f"\n\nPersonal Background:\n{self.profile.personal_background}"
+            elif isinstance(self.profile.personal_background, dict):
+                # Process dictionary format background
+                base_system_message += "\n\nPersonal Background:"
+                for key, value in self.profile.personal_background.items():
+                    base_system_message += f"\n- {key}: {value}"
+            else:
+                # Unsupported background format, log warning
+                self.logger.warning(f"Unsupported personal background format: {type(self.profile.personal_background)}")
         
-        # Knowledge domains section
-        knowledge = "# Knowledge and Expertise\n"
-        for domain, items in self.profile.knowledge_domains.items():
-            knowledge += f"- {domain}: {', '.join(items)}\n"
+        # Add language style information
+        if hasattr(self.profile, "language_style") and self.profile.language_style:
+            # Check if language style is a string or dictionary
+            if isinstance(self.profile.language_style, str):
+                # Directly add string language style
+                base_system_message += f"\n\nLanguage Style:\n{self.profile.language_style}"
+            elif isinstance(self.profile.language_style, dict):
+                # Process dictionary format language style
+                base_system_message += "\n\nLanguage Style:"
+                for key, value in self.profile.language_style.items():
+                    base_system_message += f"\n- {key}: {value}"
+            else:
+                # Unsupported language style format, log warning
+                self.logger.warning(f"Unsupported language style format: {type(self.profile.language_style)}")
         
-        # Sample interactions
-        samples = ""
-        if self.profile.interaction_samples:
-            samples = "# Sample Interactions\n"
-            for sample in self.profile.interaction_samples[:3]:  # Limit to 3 samples
-                samples += f"- {sample['type']}: {sample['content']}\n\n"
+        # Add instructions information
+        if hasattr(self.profile, "instructions") and self.profile.instructions:
+            # Check if instructions are a string or dictionary
+            if isinstance(self.profile.instructions, str):
+                # Directly add string instructions
+                base_system_message += f"\n\nInstructions:\n{self.profile.instructions}"
+            elif isinstance(self.profile.instructions, dict):
+                # Process dictionary format instructions
+                base_system_message += "\n\nInstructions:"
+                for key, value in self.profile.instructions.items():
+                    base_system_message += f"\n- {key}: {value}"
+            else:
+                # Unsupported instructions format, log warning
+                self.logger.warning(f"Unsupported instructions format: {type(self.profile.instructions)}")
         
-        # Get available tools
-        tools_section = ""
-        available_tools = self.tool_adapter.get_available_tools()
-        if available_tools:
-            tools_section = "# Available Tools\n"
-            for tool_id in available_tools:
-                tool_config = self.tool_adapter.tools.get(tool_id, {})
-                tool_name = tool_id.split(".")[-1]
-                tool_desc = tool_config.get("description", "No description available")
-                tools_section += f"- {tool_name}: {tool_desc}\n"
+        # Add tool usage instructions
+        base_system_message += "\n\nTool Usage Instructions:\n"
+        base_system_message += "You must use tools to provide up-to-date information. If the user's query involves current events, news, or any information that might change over time, "
+        base_system_message += "you must use appropriate tools (such as brave_web_search) to get accurate information. "
+        base_system_message += "Don't reply with placeholders or promises to search - actually use the available tools. "
+        base_system_message += "If you don't use tools, your answers may be inaccurate or outdated."
         
-        # Combine everything into a comprehensive system message
-        system_message = f"""You are {self.profile.name}. {self.profile.description}
-
-You must accurately simulate this persona in all your responses, including their knowledge, 
-personality, language style, beliefs, and behaviors. 
-
-{background}
-
-{language}
-
-{knowledge}
-
-{samples}
-
-{tools_section}
-
-Guidelines:
-1. Respond as if you are genuinely this person, with their unique perspective and voice.
-2. Use the language style, vocabulary, and expressions typical of this persona.
-3. Draw on the knowledge domains and expertise of this persona when answering questions.
-4. Express appropriate uncertainty when asked about topics outside this persona's knowledge.
-5. Maintain consistency with the persona's background and history.
-6. IMPORTANT: You have access to tools that can help you provide better responses. When appropriate, 
-   use these tools to gather information or perform actions. For example:
-   - Use search tools when asked about current events or information you might not know
-   - Use web scraping tools when asked to analyze specific websites
-   - Use memory tools to store and retrieve information during conversations
-   Always use tools in a way that's consistent with your persona's character and knowledge.
-"""
-        return system_message
+        # Add other information
+        if hasattr(self.profile, "knowledge") and self.profile.knowledge:
+            # Check if knowledge is a string or dictionary
+            if isinstance(self.profile.knowledge, str):
+                # Directly add string knowledge
+                base_system_message += f"\n\nKnowledge:\n{self.profile.knowledge}"
+            elif isinstance(self.profile.knowledge, dict):
+                # Process dictionary format knowledge
+                base_system_message += "\n\nKnowledge:"
+                for key, value in self.profile.knowledge.items():
+                    base_system_message += f"\n- {key}: {value}"
+            else:
+                # Unsupported knowledge format, log warning
+                self.logger.warning(f"Unsupported knowledge format: {type(self.profile.knowledge)}")
+        
+        return base_system_message
     
-    async def _async_chat(self, message: str, request_id: Optional[str] = None) -> str:
-        """Async implementation of the chat method.
+    def chat(self, message: str, timeout: int = DEFAULT_TIMEOUT) -> str:
+        """Synchronous chat method for interacting with the agent.
+        
+        This method sends a message to the agent and returns its response.
+        It uses an event loop to run the asynchronous chat method.
         
         Args:
-            message: The user's message to the agent.
-            request_id: Optional request identifier for tracking.
+            message: The message to send to the agent.
+            timeout: The maximum time in seconds to wait for a response.
             
         Returns:
             The agent's response as a string.
         """
         try:
-            # Let the LLM/agent decide when to use tools based on the context
-            self.logger.info(f"Sending message to agent: {message[:50]}...")
-            
-            # In autogen version 0.4.8.2, we use the run method
-            result = await self.agent.run(task=message)
-            
-            # Return the response
-            if not result:
-                return "No response generated."
-            
-            # Convert the response to a string if needed
-            return result if isinstance(result, str) else str(result)
-            
-        except Exception as e:
-            self.logger.error(f"Error in _async_chat: {str(e)}")
-            return f"I apologize, but I encountered an error while processing your message. Error: {str(e)}"
-    
-    def chat(self, message: str) -> str:
-        """Engage in a conversation with the persona agent.
-        
-        Args:
-            message: The user's message to the agent.
-            
-        Returns:
-            The agent's response as a string.
-        """
-        try:
-            return asyncio.run(self._async_chat(message))
-        except RuntimeError as e:
-            # If there's already a running event loop
-            if "running event loop" in str(e):
-                loop = asyncio.get_event_loop()
-                return loop.run_until_complete(self._async_chat(message))
-            raise
-    
-    def register_tool(
-        self, 
-        server_name: str, 
-        tool_name: str,
-        description: str, 
-        input_schema: Dict[str, Any]
-    ) -> bool:
-        """Register an MCP tool for the agent to use.
-
-        Args:
-            server_name: Name of the MCP server.
-            tool_name: Name of the tool.
-            description: Description of what the tool does.
-            input_schema: JSON schema for the tool's input parameters.
-            
-        Returns:
-            Boolean indicating if the tool was successfully registered.
-        """
-        try:
-            self.tool_adapter.register_tool(
-                server_name=server_name,
-                tool_name=tool_name,
-                description=description,
-                input_schema=input_schema
-            )
-
-            # Update the agent's tools with the new function
-            updated_tools = list(self.tool_adapter.get_function_map().values())
-            self.agent.tools = updated_tools
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to register tool {tool_name}: {str(e)}")
-            return False
-            
-    def enable_mcp_tools(self, mcp_config: Dict[str, Any]) -> bool:
-        """Enable MCP tools for this agent based on configuration.
-        
-        This is a synchronous wrapper around _async_enable_mcp_tools.
-        
-        Args:
-            mcp_config: MCP configuration dictionary.
-            
-        Returns:
-            Boolean indicating if tools were successfully enabled.
-        """
-        try:
-            try:
-                return asyncio.run(self._async_enable_mcp_tools(mcp_config))
-            except RuntimeError as e:
-                # If there's already a running event loop
-                if "running event loop" in str(e):
-                    loop = asyncio.get_event_loop()
-                    return loop.run_until_complete(self._async_enable_mcp_tools(mcp_config))
-                raise
-        except Exception as e:
-            self.logger.error(f"Error enabling MCP tools: {str(e)}")
-            return False
-    
-    async def _async_enable_mcp_tools(self, mcp_config: Dict[str, Any]) -> bool:
-        """Enable MCP tools for this agent based on configuration.
-        
-        Args:
-            mcp_config: MCP configuration dictionary.
-            
-        Returns:
-            Boolean indicating if tools were successfully enabled.
-        """
-        try:
-            # Get available servers and auto-approved tools
-            from persona_agent.mcp.server_config import get_available_servers, get_auto_approved_tools
-            from persona_agent.mcp.mcp import use_mcp_tool
-            
-            available_servers = get_available_servers(mcp_config)
-            auto_approved_tools = get_auto_approved_tools(mcp_config)
-            
-            self.logger.info(f"Enabling MCP tools from {len(available_servers)} servers")
-            
-            # Use autogen-ext to dynamically discover and register tools
-            try:
-                from autogen_ext.tools.mcp import StdioServerParams, mcp_server_tools
+            # Run the async _async_chat method synchronously
+            loop = asyncio.get_event_loop()
+            # If we're already in an event loop, run the coroutine directly
+            if loop.is_running():
+                # Create a new event loop for this thread
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    # Run the async chat method with a timeout
+                    return asyncio.run_coroutine_threadsafe(
+                        self._async_chat(message), loop
+                    ).result(timeout=timeout)
+                finally:
+                    # Clean up the new event loop
+                    new_loop.close()
+                    asyncio.set_event_loop(loop)
+            else:
+                # If we're not in an event loop, we can use run_until_complete
+                return loop.run_until_complete(asyncio.wait_for(
+                    self._async_chat(message), timeout
+                ))
                 
-                # Track registered tools for reporting
-                registered_tools_count = 0
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Chat timed out after {timeout} seconds")
+            return self._generate_fallback_response(message)
+        except Exception as e:
+            self.logger.error(f"Error in chat: {str(e)}")
+            return self._generate_fallback_response(message)
+    
+    async def _async_chat(self, message: str, request_id: str = None, cancellation_token = None) -> str:
+        """Asynchronous version of chat for AutoGen 0.4 compatibility.
+        
+        This method handles chat requests asynchronously and supports cancellation tokens
+        from AutoGen 0.4. It's used primarily by the HTTP API for websocket communication.
+        
+        Args:
+            message: Message to send to the persona.
+            request_id: Optional ID for tracking the request (for websocket updates).
+            cancellation_token: Optional cancellation token from AutoGen 0.4.
+            
+        Returns:
+            The persona's response as a string.
+        """
+        self.logger.info(f"Persona {self.profile.name}: Starting async chat with message: {message[:50]}...")
+        
+        # Check if the cancellation token is already cancelled
+        if cancellation_token is not None and hasattr(cancellation_token, 'cancelled') and cancellation_token.cancelled:
+            self.logger.warning("Cancellation token is already cancelled, returning fallback response")
+            return self._generate_fallback_response(message)
+        
+        try:
+            # For AutoGen 0.4, we need to use the async API
+            if hasattr(self.user_proxy, "a_initiate_chat"):
+                self.logger.info("Using a_initiate_chat for AutoGen 0.4")
                 
-                # Process each available server
-                for server_name in available_servers:
-                    server_config = mcp_config.get("mcpServers", {}).get(server_name, {})
-                    if not server_config or server_config.get("disabled", False):
-                        continue
-                    
-                    # Get the list of auto-approved tools for this server
-                    server_approved_tools = auto_approved_tools.get(server_name, [])
+                # Use a longer timeout for complex responses
+                CHAT_TIMEOUT = 120  # 2 minutes
+                
+                try:
+                    # Call a_initiate_chat directly without creating a separate task
+                    # This avoids the issue with task cancellation
+                    self.logger.info("Calling a_initiate_chat directly without creating a separate task")
                     
                     try:
-                        # Create server parameters
-                        server_params = StdioServerParams(
-                            command=server_config["command"],
-                            args=server_config.get("args", []),
-                            env=server_config.get("env", {})
+                        # Call a_initiate_chat directly with timeout
+                        # Fix counters before initiating chat
+                        # This helps prevent issues with non-English text and counters
+                        if hasattr(self.agent, "_consecutive_auto_reply_counter"):
+                            if isinstance(self.agent._consecutive_auto_reply_counter, dict):
+                                # If it's a dict, set the counter for this specific sender
+                                self.agent._consecutive_auto_reply_counter[self.user_proxy] = 0
+                            else:
+                                # If it's an int, set it directly
+                                self.agent._consecutive_auto_reply_counter = 0
+                                
+                        # Also, ensure _max_consecutive_auto_reply_dict is properly set if it exists
+                        if hasattr(self.agent, "_max_consecutive_auto_reply_dict"):
+                            if isinstance(self.agent._max_consecutive_auto_reply_dict, dict):
+                                # Ensure the sender is in the dictionary
+                                if self.user_proxy not in self.agent._max_consecutive_auto_reply_dict:
+                                    self.agent._max_consecutive_auto_reply_dict[self.user_proxy] = 0
+                                    
+                        # Now initiate the chat
+                        chat_result = await asyncio.wait_for(
+                            self.user_proxy.a_initiate_chat(
+                                self.agent, 
+                                message=message, 
+                                clear_history=False,
+                                cancellation_token=cancellation_token
+                            ),
+                            timeout=CHAT_TIMEOUT
                         )
                         
-                        # Try to fetch tools dynamically from the server
-                        self.logger.info(f"Discovering tools from {server_name}...")
+                        self.logger.info(f"Chat completed with result type: {type(chat_result)}")
                         
-                        # Dynamically get tools from server
+                        # For AutoGen 0.4, we should get a ChatResult object
+                        if hasattr(chat_result, "summary"):
+                            return chat_result.summary
+                        
+                        # Try to get the response from chat history
                         try:
-                            tools_list = await mcp_server_tools(server_params=server_params)
-                            if tools_list:
-                                for tool in tools_list:
-                                    if hasattr(tool, "__name__"):
-                                        # Extract the tool name from the function name (typically server.toolname)
-                                        parts = tool.__name__.split(".")
-                                        if len(parts) > 1:
-                                            tool_name = parts[-1]  # Last part is the tool name
-                                            
-                                            # Get tool info from docstring or function properties
-                                            description = tool.__doc__ or f"Tool: {tool_name}"
-                                            description = description.strip()
-                                            
-                                            # Try to reconstruct input schema from function signature
-                                            if hasattr(tool, "__signature__"):
-                                                # Build schema from signature if available
-                                                params = {}
-                                                required = []
-                                                for param_name, param in tool.__signature__.parameters.items():
-                                                    param_desc = ""
-                                                    param_type = "string"  # Default type
-                                                    
-                                                    # If parameter has no default, it's required
-                                                    if param.default == param.empty:
-                                                        required.append(param_name)
-                                                    
-                                                    params[param_name] = {
-                                                        "type": param_type,
-                                                        "description": param_desc
-                                                    }
-                                                
-                                                input_schema = {
-                                                    "type": "object",
-                                                    "properties": params,
-                                                    "required": required
-                                                }
-                                            else:
-                                                # Generic schema if no signature info
-                                                input_schema = {
-                                                    "type": "object",
-                                                    "properties": {},
-                                                    "required": []
-                                                }
-                                            
-                                            # Register the tool
-                                            self.register_tool(
-                                                server_name=server_name,
-                                                tool_name=tool_name,
-                                                description=description,
-                                                input_schema=input_schema
-                                            )
-                                            registered_tools_count += 1
-                                            self.logger.info(f"Registered tool {tool_name} from {server_name}")
-                        except Exception as disc_error:
-                            self.logger.warning(f"Error discovering tools from {server_name}: {str(disc_error)}")
-                            self.logger.info("Falling back to list_tools API")
-                            
-                            # Fall back to registering auto-approved tools with server's list_tools API
-                            for tool_name in server_approved_tools:
-                                try:
-                                    # Call the server's list_tools endpoint
-                                    tool_info = await use_mcp_tool(
-                                        server_name=server_name,
-                                        tool_name="list_tools",
-                                        arguments={}
-                                    )
-                                    
-                                    # Find the specific tool in the response
-                                    if isinstance(tool_info, dict) and "tools" in tool_info:
-                                        tools = tool_info["tools"]
-                                        matching_tool = next((t for t in tools if t["name"] == tool_name), None)
-                                        
-                                        if matching_tool:
-                                            description = matching_tool.get("description", f"Tool: {tool_name}")
-                                            input_schema = matching_tool.get("inputSchema", {
-                                                "type": "object",
-                                                "properties": {},
-                                                "required": []
-                                            })
-                                            
-                                            # Register with fetched schema
-                                            self.register_tool(
-                                                server_name=server_name,
-                                                tool_name=tool_name,
-                                                description=description,
-                                                input_schema=input_schema
-                                            )
-                                            registered_tools_count += 1
-                                            self.logger.info(f"Registered tool {tool_name} from {server_name} (via list_tools)")
-                                except Exception as list_error:
-                                    self.logger.warning(f"Error fetching tool info for {tool_name}: {str(list_error)}")
-                                    self.logger.warning(f"Skipping tool {tool_name} as it could not be discovered dynamically")
-                    except Exception as server_error:
-                        self.logger.error(f"Error processing server {server_name}: {str(server_error)}")
+                            if self.agent in self.user_proxy.chat_messages:
+                                for msg in reversed(self.user_proxy.chat_messages[self.agent]):
+                                    if msg["role"] == "assistant":
+                                        return msg["content"]
+                        except Exception as e:
+                            self.logger.warning(f"Error retrieving chat messages: {str(e)}")
+                        
+                        # If we don't have a result yet, generate a fallback
+                        return self._generate_fallback_response(message)
+                        
+                    except asyncio.TimeoutError:
+                        self.logger.warning(f"Chat task timed out after {CHAT_TIMEOUT} seconds")
+                        # Cancel the token if available
+                        if cancellation_token and hasattr(cancellation_token, 'cancel'):
+                            cancellation_token.cancel()
+                            self.logger.info("Cancelled token due to timeout")
+                        return self._generate_fallback_response(message)
+                    except asyncio.CancelledError:
+                        self.logger.warning("Chat operation was cancelled")
+                        return self._generate_fallback_response(message)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error in a_initiate_chat: {str(e)}")
+                    import traceback
+                    self.logger.error(f"Traceback: {traceback.format_exc()}")
+                    return self._generate_fallback_response(message)
+            else:
+                # Fall back to the synchronous version for legacy AutoGen
+                self.logger.info("Using synchronous initiate_chat for chat")
+                # Run the synchronous version in a thread pool to avoid blocking
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    chat_result = await asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        lambda: self.user_proxy.initiate_chat(self.agent, message=message, clear_history=False)
+                    )
                 
-                # Update the system message to include the new tools
-                self.agent.system_message = self._generate_system_message()
+                # Try to get summary from chat_result
+                if hasattr(chat_result, "summary"):
+                    return chat_result.summary
                 
-                self.logger.info(f"Successfully registered {registered_tools_count} MCP tools")
-                return registered_tools_count > 0
+                # Otherwise check chat history
+                if self.agent in self.user_proxy.chat_messages:
+                    for msg in reversed(self.user_proxy.chat_messages[self.agent]):
+                        if msg["role"] == "assistant":
+                            return msg["content"]
                 
-            except ImportError as imp_error:
-                self.logger.warning(f"Failed to import autogen-ext tools: {str(imp_error)}")
-                self.logger.error("autogen-ext[mcp] is required for MCP tool integration")
-                self.logger.info("To install it, run: pip install -U \"autogen-ext[mcp]\"")
-                return False  # No fallback to hardcoded tools, require proper configuration
-                
+                # Fallback if no response found
+                self.logger.warning("No assistant message found in chat history")
+                return self._generate_fallback_response(message)
+        except asyncio.CancelledError:
+            self.logger.error("Chat task was explicitly cancelled")
+            return self._generate_fallback_response(message)
+        except AutoGenCancelledError:
+            self.logger.error("AutoGen cancelled error occurred")
+            return self._generate_fallback_response(message)
         except Exception as e:
-            self.logger.error(f"Failed to enable MCP tools: {str(e)}")
-            return False
+            self.logger.error(f"Error during async chat: {str(e)}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return f"An error occurred during the chat: {str(e)}"
+    
+    def _generate_fallback_response(self, message: str) -> str:
+        """Generate a fallback response when the LLM is unavailable.
+        
+        If the LLM is unavailable or times out, this method generates a 
+        fallback response that attempts to maintain the persona.
+        
+        Args:
+            message: The user message that was being processed.
+            
+        Returns:
+            A fallback message from the persona.
+        """
+        # Use a consistent fallback message instead of hardcoding it everywhere
+        return DEFAULT_FALLBACK_PROMPT
+
+    
+    def enable_mcp_tools(self, mcp_config=None):
+        """Enable MCP tools for this Persona"""
+        import traceback
+        try:
+            from src.persona_agent.mcp import register_mcp_tools_for_persona
+        
+            # Try to get MCP configuration
+            if not mcp_config:
+                # Try to get global configuration from API
+                from src.persona_agent.api import get_mcp_config
+                mcp_config = get_mcp_config()
+                if not mcp_config:
+                    self.logger.warning("No MCP configuration provided, cannot enable MCP tools")
+                    return
+        
+            self.logger.info(f"MCP configuration content: {json.dumps(mcp_config, indent=2)}")
+            
+            # Use generic MCP adapter directly
+            self.logger.info(f"Enabling MCP tools for {self.profile.name}")
+            
+            # Call the API's tool registration function
+            result = register_mcp_tools_for_persona(self, mcp_config)
+            
+            if result:
+                self.logger.info(f"Successfully enabled MCP tools for {self.profile.name}")
+            else:
+                self.logger.warning(f"Failed to enable MCP tools for {self.profile.name}")
+        
+        except Exception as e:
+            self.logger.error(f"Error enabling MCP tools: {str(e)}")
+            self.logger.error(traceback.format_exc())
     
     def save_persona(self, file_path: str) -> None:
         """Save the persona configuration to a file.
@@ -538,3 +648,190 @@ Guidelines:
                 raise
         
         return cls(profile=profile, llm_config=llm_config, tools=tools, tool_adapter=tool_adapter)
+
+    def get_tool_list(self):
+        """Retrieve the list of available tools."""
+        if not hasattr(self, 'tool_adapter') or self.tool_adapter is None:
+            self.logger.warning("Tool adapter not found, returning empty list")
+            return []
+
+        self.logger.info(f"Tool adapter type: {type(self.tool_adapter)}")
+        self.logger.info(f"Tool adapter attributes: {dir(self.tool_adapter)}")
+
+        has_function_map = hasattr(self.tool_adapter, 'function_map')
+        self.logger.info(f"Tool adapter has function_map attribute: {has_function_map}")
+
+        if has_function_map:
+            function_map = self.tool_adapter.function_map
+            self.logger.info(f"function_map type: {type(function_map)}")
+            self.logger.info(f"function_map is empty: {not bool(function_map)}")
+            if function_map:
+                self.logger.info(f"function_map keys: {list(function_map.keys())}")
+
+        has_tools_config = hasattr(self.tool_adapter, 'tools_config')
+        self.logger.info(f"Tool adapter has tools_config attribute: {has_tools_config}")
+
+        if has_tools_config:
+            tools_config = self.tool_adapter.tools_config
+            self.logger.info(f"tools_config type: {type(tools_config)}")
+            self.logger.info(f"tools_config is empty: {not bool(tools_config)}")
+            if tools_config:
+                self.logger.info(f"tools_config keys: {list(tools_config.keys())}")
+
+        has_tools = hasattr(self.tool_adapter, 'tools')
+        self.logger.info(f"Tool adapter has tools attribute: {has_tools}")
+
+        if has_tools:
+            tools = self.tool_adapter.tools
+            self.logger.info(f"tools type: {type(tools)}")
+            self.logger.info(f"tools is empty: {not bool(tools)}")
+            if tools:
+                self.logger.info(f"tools keys: {list(tools.keys())}")
+
+        if hasattr(self.tool_adapter, 'function_map') and self.tool_adapter.function_map:
+            tool_count = len(self.tool_adapter.function_map)
+            self.logger.info(f"Retrieved {tool_count} tools from tool adapter")
+
+            tools = []
+            for tool_id, _ in self.tool_adapter.function_map.items():
+                if hasattr(self.tool_adapter, 'tools_config') and self.tool_adapter.tools_config:
+                    tool_config = self.tool_adapter.tools_config.get(tool_id, {})
+                elif hasattr(self.tool_adapter, 'tools') and self.tool_adapter.tools:
+                    tool_config = self.tool_adapter.tools.get(tool_id, {})
+                else:
+                    tool_config = {}
+
+                self.logger.info(f"Tool config {tool_id}: {tool_config}")
+
+                tools.append({
+                    "id": tool_id,
+                    "name": tool_config.get("name", tool_id),
+                    "description": tool_config.get("description", ""),
+                    "requires_approval": tool_config.get("requires_approval", True)
+                })
+            return tools
+
+        if hasattr(self.tool_adapter, 'tools') and self.tool_adapter.tools:
+            tool_count = len(self.tool_adapter.tools)
+            self.logger.info(f"Retrieved {tool_count} tools from tools attribute")
+
+            tools = []
+            for tool_id, tool_config in self.tool_adapter.tools.items():
+                self.logger.info(f"Tool config {tool_id}: {tool_config}")
+
+                tools.append({
+                    "id": tool_id,
+                    "name": tool_config.get("name", tool_id),
+                    "description": tool_config.get("description", ""),
+                    "requires_approval": tool_config.get("requires_approval", True)
+                })
+            return tools
+
+        if hasattr(self.tool_adapter, 'tools_config') and self.tool_adapter.tools_config:
+            tool_count = len(self.tool_adapter.tools_config)
+            self.logger.info(f"Retrieved {tool_count} tools from tools_config attribute")
+
+            tools = []
+            for tool_id, tool_config in self.tool_adapter.tools_config.items():
+                self.logger.info(f"Tool config {tool_id}: {tool_config}")
+
+                tools.append({
+                    "id": tool_id,
+                    "name": tool_config.get("name", tool_id),
+                    "description": tool_config.get("description", ""),
+                    "requires_approval": tool_config.get("requires_approval", True)
+                })
+            return tools
+
+        self.logger.warning("No tools found, returning empty list")
+        return []
+
+    def execute_tool(self, tool_id: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a tool with the given parameters.
+        
+        This method handles both synchronous and asynchronous tool executions.
+
+        Args:
+            tool_id: The unique identifier of the tool to execute.
+            parameters: The parameters to pass to the tool.
+
+        Returns:
+            The result of the tool execution.
+        """
+        self.logger.info(f"Executing tool: {tool_id}")
+        self.logger.info(f"Parameters: {json.dumps(parameters, indent=2, ensure_ascii=False)}")
+        
+        # Check if the tool exists
+        if tool_id not in self.tool_adapter.function_map:
+            # Try to find a simplified tool ID
+            simplified_id = tool_id.split(".")[-1]
+            if simplified_id in self.tool_adapter.function_map:
+                self.logger.info(f"Found simplified tool ID: {simplified_id}")
+                tool_id = simplified_id
+            else:
+                # Log all available tools
+                available_tools = list(self.tool_adapter.function_map.keys())
+                self.logger.error(f"Tool {tool_id} does not exist, available tools: {available_tools}")
+                return {
+                    "success": False,
+                    "error": f"Tool {tool_id} not found",
+                    "error_type": "ToolNotFoundError"
+                }
+        
+        # Get the tool function
+        tool_func = self.tool_adapter.function_map[tool_id]
+        
+        try:
+            # Execute the tool
+            self.logger.info(f"Starting to execute tool {tool_id}")
+            
+            # Check if the function is a coroutine
+            if inspect.iscoroutinefunction(tool_func):
+                self.logger.info(f"Tool {tool_id} is a coroutine function, will use asyncio to run")
+                try:
+                    # Use asyncio to run the coroutine function
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # If no event loop, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                if loop.is_running():
+                    # If the event loop is already running, use asyncio.run_coroutine_threadsafe
+                    concurrent_future = asyncio.run_coroutine_threadsafe(
+                        tool_func(**parameters), loop
+                    )
+                    result = concurrent_future.result(timeout=60)  # 60 seconds timeout
+                else:
+                    # If the event loop is not running, use loop.run_until_complete
+                    result = loop.run_until_complete(tool_func(**parameters))
+            else:
+                # Synchronous function directly call
+                self.logger.info(f"Tool {tool_id} is a synchronous function, directly call")
+                result = tool_func(**parameters)
+                
+            self.logger.info(f"Tool {tool_id} execution completed")
+            
+            # Record the result
+            if isinstance(result, dict):
+                self.logger.info(f"Result type: Dictionary, keys: {list(result.keys())}")
+            else:
+                self.logger.info(f"Result type: {type(result)}")
+            
+            # Standardize the result format
+            if isinstance(result, dict) and "success" in result:
+                return result
+            else:
+                return {
+                    "success": True,
+                    "result": result
+                }
+        except Exception as e:
+            self.logger.error(f"Error executing tool {tool_id}: {str(e)}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": e.__class__.__name__
+            }
