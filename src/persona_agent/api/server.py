@@ -1,65 +1,124 @@
 """Main API server module.
 
-This module provides the FastAPI server implementation for the Persona Agent API.
+Provides the FastAPI server with A2A protocol support, REST API,
+and MCP tool integration managed via lifespan events.
 """
 
 import asyncio
 import logging
-import os
-from typing import Annotated, List, Optional
+from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from src.persona_agent.api.config import ApiConfig, load_config
-from src.persona_agent.api.dependencies import get_config, get_persona_manager, get_agent_factory
-from src.persona_agent.api.persona_manager import PersonaManager
-from src.persona_agent.api.agent_factory import AgentFactory
-from src.persona_agent.api.routes import persona, agent, session
+from persona_agent.a2a.executor import PersonaAgentExecutor
+from persona_agent.api.agent_factory import AgentFactory
+from persona_agent.api.config import ApiConfig, load_config
+from persona_agent.api.dependencies import (
+    get_agent_factory,
+    get_config,
+    get_persona_manager,
+)
+from persona_agent.api.persona_manager import PersonaManager
+from persona_agent.api.routes import agent, persona, session
+from persona_agent.api.routes.a2a import A2ARegistry, set_registry
+from persona_agent.api.routes.a2a import router as a2a_router
+from persona_agent.llm.client import OpenAICompatibleClient
+from persona_agent.mcp.direct_mcp import DirectMCPManager
 
-# API version constant
-API_VERSION = "0.1.0"
+API_VERSION = "0.2.0"
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("api_server")
 
-# Load configuration
-config = load_config()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage MCP service lifecycle and A2A registry setup."""
+    config: ApiConfig = app.state.config
+    mcp_manager: DirectMCPManager = app.state.mcp_manager
+
+    # Initialize MCP services
+    import os
+
+    mcp_config_path = config.mcp_config_path or os.path.join(
+        os.path.dirname(config.llm_config_path), "mcp_config.json"
+    )
+    if mcp_config_path and os.path.exists(mcp_config_path):
+        await mcp_manager.load_config(mcp_config_path)
+        logger.info(
+            "MCP services initialized: %d tools", len(mcp_manager.get_all_tools())
+        )
+
+    # Set up A2A registry with all loaded personas
+    persona_manager: PersonaManager = app.state.persona_manager
+    llm_client = app.state.llm_client
+    registry = A2ARegistry(base_url=f"http://{config.host}:{config.port}")
+
+    for p_info in persona_manager.list_personas():
+        p = persona_manager.get_persona(p_info["id"])
+        if p:
+            executor = PersonaAgentExecutor(
+                persona_id=p.id,
+                persona_name=p.name,
+                system_prompt=p.generate_system_prompt(),
+                llm_client=llm_client,
+                mcp_manager=mcp_manager,
+            )
+            registry.register_persona(p, executor)
+
+    set_registry(registry)
+    # Mount each persona's A2A sub-app using the SDK's public build() API
+    registry.mount_all(app)
+    logger.info(
+        "A2A registry initialized with %d personas", len(registry.list_personas())
+    )
+
+    yield
+
+    # Cleanup
+    await mcp_manager.close()
+    logger.info("MCP services closed")
 
 
-async def create_app(config: ApiConfig = None):
-    """Create and configure the FastAPI application.
-    
-    This function initializes and configures a FastAPI application with all necessary
-    routes, middleware, and dependencies for the Persona Agent API.
-    
-    Args:
-        config: Optional API configuration settings. If not provided, 
-            default settings will be loaded.
-               
-    Returns:
-        FastAPI: A fully configured FastAPI application instance ready to be run.
-    """
+async def create_app(config: ApiConfig | None = None) -> FastAPI:
+    """Create and configure the FastAPI application."""
     if config is None:
         config = load_config()
-    
+
     app = FastAPI(
         title="Persona Agent API",
-        description="API server for interacting with AI personas",
+        description="AI persona agents powered by A2A protocol with MCP tool integration",
         version=API_VERSION,
+        lifespan=lifespan,
     )
-    
-    # Log important configuration information
-    logger.info(f"LLM config path: {config.llm_config_path}")
-    logger.info(f"Default model: {config.default_model}")
-    
-    # Configure CORS
+
+    # Store shared objects in app state
+    app.state.config = config
+
+    llm_client = OpenAICompatibleClient.from_config(
+        _load_llm_config(config.llm_config_path)
+    )
+    app.state.llm_client = llm_client
+
+    mcp_manager = DirectMCPManager()
+    app.state.mcp_manager = mcp_manager
+
+    persona_manager = PersonaManager(config.personas_dir)
+    app.state.persona_manager = persona_manager
+
+    agent_factory = AgentFactory(
+        llm_config_path=config.llm_config_path,
+        llm_client=llm_client,
+        mcp_manager=mcp_manager,
+    )
+
+    # CORS
     if config.enable_cors:
         app.add_middleware(
             CORSMiddleware,
@@ -68,110 +127,80 @@ async def create_app(config: ApiConfig = None):
             allow_methods=["*"],
             allow_headers=["*"],
         )
-    
-    # Create persona manager
-    persona_manager = PersonaManager(config.personas_dir)
-    
-    # Create agent factory
-    agent_factory = AgentFactory(
-        llm_config_path=config.llm_config_path
-    )
-    
+
     # Dependency overrides
     app.dependency_overrides[get_config] = lambda: config
     app.dependency_overrides[get_persona_manager] = lambda: persona_manager
     app.dependency_overrides[get_agent_factory] = lambda: agent_factory
-    
-    # Include routers
+
+    # REST API routes
     app.include_router(persona.router, prefix=config.api_prefix)
     app.include_router(agent.router, prefix=config.api_prefix)
     app.include_router(session.router, prefix=config.api_prefix)
-    
-    # Add health check endpoint
+
+    # A2A protocol routes
+    app.include_router(a2a_router)
+
+    # Health check
     @app.get("/health", tags=["health"])
     async def health_check():
-        """Health check endpoint.
-        
-        Returns:
-            dict: A dictionary with status information.
-        """
-        try:
-            return {
-                "status": "ok", 
-                "api_version": API_VERSION,
-                "default_model": config.default_model
-            }
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
-    
-    # Error handler for authentication errors
+        return {
+            "status": "ok",
+            "api_version": API_VERSION,
+            "protocol": "a2a",
+            "default_model": config.default_model,
+            "mcp_tools": len(mcp_manager.get_all_tools())
+            if mcp_manager.is_initialized
+            else 0,
+        }
+
+    # Exception handlers
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
-        """Handle HTTP exceptions with proper response.
-        
-        Args:
-            request: The incoming request.
-            exc: The HTTP exception that was raised.
-            
-        Returns:
-            JSONResponse: A formatted JSON response with error details.
-        """
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.detail},
-        )
-    
-    # Global exception handler
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        """Handle uncaught exceptions with error logging and friendly response.
-        
-        Args:
-            request: The incoming request.
-            exc: The exception that was raised.
-            
-        Returns:
-            JSONResponse: A formatted JSON response with error details.
-        """
         import traceback
-        error_detail = traceback.format_exc()
-        logger.error(f"Unhandled exception: {str(exc)}\n{error_detail}")
-        
+
+        logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
         return JSONResponse(
             status_code=500,
-            content={
-                "detail": "Internal server error",
-                "message": str(exc),
-                "type": exc.__class__.__name__
-            }
+            content={"detail": "Internal server error", "message": str(exc)},
         )
-    
+
     return app
 
 
-def run_server(config: ApiConfig = None):
-    """Run the FastAPI server with the given configuration.
-    
-    Args:
-        config: Optional API configuration settings. If not provided, 
-            default settings will be loaded.
-    """
+def _load_llm_config(path: str) -> dict:
+    """Load LLM config from JSON file, returning empty dict on failure."""
+    import json
+    import os
+
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning("Failed to load LLM config from %s: %s", path, e)
+        return {}
+
+
+def run_server(config: ApiConfig | None = None) -> None:
+    """Run the FastAPI server."""
     if config is None:
         config = load_config()
-    
-    # Create an event loop for running the async app creation
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    # Create the app
     app = loop.run_until_complete(create_app(config))
 
-    # Run the server
     uvicorn.run(
         app,
         host=config.host,
         port=config.port,
-        log_level="debug" if config.debug else "info"
+        log_level="debug" if config.debug else "info",
     )
 
 
