@@ -111,15 +111,24 @@ class OpenAICompatibleClient(LLMClient):
                 "model_configs": [{"model": "...", "temperature": 0.7, ...}]
             }
         """
+        default_model = config.get("default_model", "gpt-4o-mini")
         model_configs = config.get("model_configs", [])
-        first = model_configs[0] if model_configs else {}
+
+        # Find the config matching default_model, fall back to first entry
+        matched = {}
+        for mc in model_configs:
+            if mc.get("model") == default_model:
+                matched = mc
+                break
+        if not matched and model_configs:
+            matched = model_configs[0]
 
         return cls(
-            model=first.get("model", config.get("default_model", "gpt-4o-mini")),
-            api_key=first.get("api_key") or config.get("api_key"),
+            model=matched.get("model", default_model),
+            api_key=matched.get("api_key") or config.get("api_key"),
             base_url=config.get("api_base"),
-            temperature=first.get("temperature", 0.7),
-            max_tokens=first.get("max_tokens", 4000),
+            temperature=matched.get("temperature", 0.7),
+            max_tokens=matched.get("max_tokens", 4000),
         )
 
     async def chat(

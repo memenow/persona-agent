@@ -4,10 +4,10 @@ This module provides a factory class for creating and managing AI agents
 powered by the A2A protocol with direct LLM and MCP tool integration.
 """
 
-import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any
 
@@ -38,7 +38,7 @@ class AgentSession:
         self.persona_id: str = persona_id
         self.executor: PersonaAgentExecutor = executor
         self.messages: list[dict[str, Any]] = []
-        self.created_at: float = asyncio.get_event_loop().time()
+        self.created_at: float = time.monotonic()
         self.last_active: float = self.created_at
 
     def add_message(self, role: str, content: str) -> None:
@@ -47,10 +47,10 @@ class AgentSession:
             {
                 "role": role,
                 "content": content,
-                "timestamp": asyncio.get_event_loop().time(),
+                "timestamp": time.monotonic(),
             }
         )
-        self.last_active = asyncio.get_event_loop().time()
+        self.last_active = time.monotonic()
 
     def get_messages(self) -> list[dict[str, Any]]:
         """Get all messages in the conversation."""
@@ -150,7 +150,7 @@ class AgentFactory:
             "id": agent_id,
             "persona_id": persona.id,
             "executor": executor,
-            "created_at": asyncio.get_event_loop().time(),
+            "created_at": time.monotonic(),
         }
 
         logger.info("Created agent %s for persona %s", agent_id, persona.name)

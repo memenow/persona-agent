@@ -13,7 +13,7 @@ from a2a.server.request_handlers.default_request_handler import (
     DefaultRequestHandler,
 )
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
-from a2a.types import AgentCard
+from a2a.types import AgentCapabilities, AgentCard
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -114,9 +114,11 @@ class A2ARegistry:
             description="Multi-persona AI agent hub powered by A2A protocol",
             url=f"{self.base_url}/a2a/",
             version="1.0.0",
-            capabilities=AgentCard.model_fields["capabilities"].default
-            if "capabilities" in AgentCard.model_fields
-            else next(iter(self._cards.values())).capabilities,
+            capabilities=AgentCapabilities(
+                streaming=True,
+                push_notifications=False,
+                state_transition_history=True,
+            ),
             default_input_modes=["text/plain"],
             default_output_modes=["text/plain"],
             skills=all_skills,
@@ -182,19 +184,23 @@ async def handle_a2a_request(persona_id: str, request: Request) -> JSONResponse:
             content={"error": f"Persona '{persona_id}' not registered as A2A agent"},
         )
 
-    # Delegate to the A2A app's handler
-    body = await request.json()
-    # Use the app's internal handler to process the JSON-RPC request
+    # Delegate to the A2A app's ASGI handler
     try:
         response = await app._handle_requests(request)
         return response
     except Exception:
         logger.exception("Error handling A2A request for persona %s", persona_id)
+        # Parse body only in error path for the JSON-RPC id
+        try:
+            body = await request.json()
+            req_id = body.get("id")
+        except Exception:
+            req_id = None
         return JSONResponse(
             status_code=500,
             content={
                 "jsonrpc": "2.0",
                 "error": {"code": -32603, "message": "Internal error"},
-                "id": body.get("id"),
+                "id": req_id,
             },
         )

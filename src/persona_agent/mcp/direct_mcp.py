@@ -161,6 +161,9 @@ class DirectMCPManager:
         )
 
         for attempt in range(1, MAX_RETRIES + 1):
+            # Use a local exit stack per attempt to avoid leaking
+            # half-initialized connections on failure
+            local_stack = AsyncExitStack()
             try:
                 logger.info(
                     "Connecting to MCP service %s (attempt %d): %s %s",
@@ -170,10 +173,10 @@ class DirectMCPManager:
                     " ".join(args),
                 )
 
-                read_stream, write_stream = await self._exit_stack.enter_async_context(
+                read_stream, write_stream = await local_stack.enter_async_context(
                     stdio_client(params)
                 )
-                session = await self._exit_stack.enter_async_context(
+                session = await local_stack.enter_async_context(
                     ClientSession(read_stream, write_stream)
                 )
                 await session.initialize()
@@ -184,7 +187,11 @@ class DirectMCPManager:
 
                 if not tools:
                     logger.warning("Service %s returned no tools", name)
+                    await local_stack.aclose()
                     return False
+
+                # Success — transfer ownership to the shared exit stack
+                await self._exit_stack.enter_async_context(local_stack)
 
                 conn = MCPServiceConnection(name, session, tools)
                 self._connections[name] = conn
@@ -203,6 +210,8 @@ class DirectMCPManager:
                 return True
 
             except Exception:
+                # Clean up the failed attempt's resources
+                await local_stack.aclose()
                 logger.exception(
                     "Failed to connect to MCP service %s (attempt %d/%d)",
                     name,

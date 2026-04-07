@@ -52,7 +52,7 @@ async def get_agent(agent_id: str, agent_factory=Depends(get_agent_factory)):
     return AgentResponse(
         id=agent_info["id"],
         persona_id=agent_info["persona_id"],
-        name=agent_info["agent"].name,
+        name=agent_info["executor"].persona_name,
         created_at=agent_info["created_at"],
     )
 
@@ -90,7 +90,7 @@ async def create_agent(
         return AgentResponse(
             id=agent_info["id"],
             persona_id=agent_info["persona_id"],
-            name=agent_info["agent"].name,
+            name=agent_info["executor"].persona_name,
             created_at=agent_info["created_at"],
         )
     except Exception as e:

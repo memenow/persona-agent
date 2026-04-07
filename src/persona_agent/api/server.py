@@ -46,10 +46,10 @@ async def lifespan(app: FastAPI):
     # Initialize MCP services
     import os
 
-    mcp_config_path = os.path.join(
+    mcp_config_path = config.mcp_config_path or os.path.join(
         os.path.dirname(config.llm_config_path), "mcp_config.json"
     )
-    if os.path.exists(mcp_config_path):
+    if mcp_config_path and os.path.exists(mcp_config_path):
         await mcp_manager.load_config(mcp_config_path)
         logger.info(
             "MCP services initialized: %d tools", len(mcp_manager.get_all_tools())
