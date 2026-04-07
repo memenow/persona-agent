@@ -1,7 +1,6 @@
-"""Direct MCP manager using the mcp library without AutoGen wrapper.
+"""MCP manager using the mcp library directly.
 
-Replaces autogen-ext[mcp] with direct mcp library usage for
-stdio server lifecycle, tool discovery, and tool execution.
+Handles stdio server lifecycle, tool discovery, and tool execution.
 """
 
 import json
@@ -73,8 +72,7 @@ class MCPServiceConnection:
 class DirectMCPManager:
     """MCP service and tool manager using the mcp library directly.
 
-    Manages stdio server lifecycle, tool loading, and tool execution
-    without any AutoGen dependency.
+    Manages stdio server lifecycle, tool loading, and tool execution.
     """
 
     def __init__(self) -> None:
