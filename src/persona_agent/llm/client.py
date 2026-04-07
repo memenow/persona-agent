@@ -1,7 +1,7 @@
 """LLM client abstraction with OpenAI-compatible implementation.
 
-Provides a framework-agnostic LLM interface that replaces AutoGen's
-OpenAIChatCompletionClient with direct openai SDK usage.
+Provides a framework-agnostic LLM interface using the openai SDK directly.
+Supports any OpenAI-compatible provider (OpenAI, Azure, Ollama, vLLM, etc.).
 """
 
 import json

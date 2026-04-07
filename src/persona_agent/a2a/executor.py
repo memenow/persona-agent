@@ -1,7 +1,6 @@
 """PersonaAgentExecutor: A2A executor that wraps persona logic with LLM + MCP tools.
 
-Replaces AutoGen's AssistantAgent + UserProxyAgent pattern with a direct
-LLM call loop that handles tool execution internally.
+Uses a direct LLM call loop that handles tool execution internally.
 """
 
 import json
