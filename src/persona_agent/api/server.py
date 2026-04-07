@@ -73,6 +73,8 @@ async def lifespan(app: FastAPI):
             registry.register_persona(p, executor)
 
     set_registry(registry)
+    # Mount each persona's A2A sub-app using the SDK's public build() API
+    registry.mount_all(app)
     logger.info(
         "A2A registry initialized with %d personas", len(registry.list_personas())
     )

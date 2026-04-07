@@ -7,6 +7,7 @@ LLM call loop that handles tool execution internally.
 import json
 import logging
 import uuid
+from collections import OrderedDict
 from typing import Any
 
 from a2a.server.agent_execution import AgentExecutor
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of tool call iterations to prevent infinite loops
 MAX_TOOL_ITERATIONS = 10
+MAX_CONTEXT_HISTORIES = 200
 
 
 class PersonaAgentExecutor(AgentExecutor):
@@ -51,8 +53,9 @@ class PersonaAgentExecutor(AgentExecutor):
         self.llm_client = llm_client
         self.mcp_manager = mcp_manager
 
-        # Conversation history per context_id for multi-turn support
-        self._histories: dict[str, list[dict[str, Any]]] = {}
+        # Conversation history per context_id for multi-turn support.
+        # Uses OrderedDict as an LRU cache to cap memory usage.
+        self._histories: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
 
     async def execute(
         self,
@@ -226,9 +229,17 @@ class PersonaAgentExecutor(AgentExecutor):
         return response.content or ""
 
     def _get_history(self, context_id: str) -> list[dict[str, Any]]:
-        """Get or create conversation history for a context."""
-        if context_id not in self._histories:
+        """Get or create conversation history for a context.
+
+        Evicts the oldest context when the cache exceeds MAX_CONTEXT_HISTORIES.
+        """
+        if context_id in self._histories:
+            self._histories.move_to_end(context_id)
+        else:
             self._histories[context_id] = []
+            # Evict oldest entries when cache is full
+            while len(self._histories) > MAX_CONTEXT_HISTORIES:
+                self._histories.popitem(last=False)
         return self._histories[context_id]
 
     def clear_history(self, context_id: str) -> None:

@@ -39,7 +39,7 @@ Three-layer structure under `src/persona_agent/`:
 ## Key Files
 
 - `api/agent_factory.py` — Creates `PersonaAgentExecutor` instances, manages sessions. Uses `LLMClient` + `DirectMCPManager`.
-- `api/routes/a2a.py` — A2A JSON-RPC endpoints and agent card discovery. `A2ARegistry` manages per-persona A2A apps.
+- `api/routes/a2a.py` — A2A agent card discovery and registry. Each persona is mounted as an independent ASGI sub-app via the SDK's `build()` API.
 - `a2a/executor.py` — Core agent logic: LLM chat loop with MCP tool calling.
 - `llm/client.py` — Abstract `LLMClient` + `OpenAICompatibleClient` implementation.
 - `mcp/direct_mcp.py` — Direct MCP stdio server management without framework wrappers.
@@ -53,8 +53,8 @@ Key env vars: `OPENAI_API_KEY`, `PERSONAS_DIR` (default: `examples/personas`), `
 ## A2A Endpoints
 
 - `GET /.well-known/agent.json` — Aggregate agent card for all personas
-- `GET /a2a/{persona_id}/.well-known/agent.json` — Individual persona agent card
-- `POST /a2a/{persona_id}/` — A2A JSON-RPC endpoint
+- `GET /a2a/{persona_id}/.well-known/agent-card.json` — Individual persona agent card (SDK default path)
+- `POST /a2a/{persona_id}/` — A2A JSON-RPC endpoint (SDK sub-app)
 - `GET /a2a/personas` — List all A2A persona agents
 
 ## Persona Schema
