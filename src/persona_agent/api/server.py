@@ -9,12 +9,13 @@ import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from persona_agent.a2a.executor import PersonaAgentExecutor
 from persona_agent.api.agent_factory import AgentFactory
+from persona_agent.api.auth import make_api_key_dependency
 from persona_agent.api.config import ApiConfig, load_config
 from persona_agent.api.dependencies import (
     get_agent_factory,
@@ -119,11 +120,17 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
     )
 
     # CORS
+    cors_wildcard_origin = any(origin == "*" for origin in config.allowed_origins)
+    cors_credentials = config.enable_cors and not cors_wildcard_origin
     if config.enable_cors:
+        if cors_wildcard_origin:
+            logger.warning(
+                "CORS allow_credentials disabled because allowed_origins contains '*'."
+            )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=config.allowed_origins,
-            allow_credentials=True,
+            allow_credentials=cors_credentials,
             allow_methods=["*"],
             allow_headers=["*"],
         )
@@ -133,15 +140,36 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
     app.dependency_overrides[get_persona_manager] = lambda: persona_manager
     app.dependency_overrides[get_agent_factory] = lambda: agent_factory
 
-    # REST API routes
-    app.include_router(persona.router, prefix=config.api_prefix)
-    app.include_router(agent.router, prefix=config.api_prefix)
-    app.include_router(session.router, prefix=config.api_prefix)
+    # Build the auth dependency now that we know the active config; this is
+    # the only point where ``config.api_key_header`` is read, so renaming the
+    # header requires an app restart.
+    verify_api_key = make_api_key_dependency(config)
 
-    # A2A protocol routes
+    # REST API routes (protected by API key when enable_auth is True)
+    app.include_router(
+        persona.router,
+        prefix=config.api_prefix,
+        dependencies=[Depends(verify_api_key)],
+    )
+    app.include_router(
+        agent.router,
+        prefix=config.api_prefix,
+        dependencies=[Depends(verify_api_key)],
+    )
+    app.include_router(
+        session.router,
+        prefix=config.api_prefix,
+        dependencies=[Depends(verify_api_key)],
+    )
+
+    # A2A discovery routes (aggregate agent card, persona listing) are public
+    # by protocol design: external agents must be able to discover this hub
+    # without holding an API key. The mounted SDK sub-apps are similarly
+    # public. Authentication only gates the REST CRUD surface above.
     app.include_router(a2a_router)
 
-    # Health check
+    # Health check (always public; surfaces effective auth/CORS posture so
+    # operators can verify configuration at a glance).
     @app.get("/health", tags=["health"])
     async def health_check():
         return {
@@ -152,7 +180,30 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
             "mcp_tools": len(mcp_manager.get_all_tools())
             if mcp_manager.is_initialized
             else 0,
+            "auth": {
+                "enabled": config.enable_auth,
+                "configured": bool(config.allowed_api_keys),
+                "header": config.api_key_header,
+            },
+            "cors": {
+                "enabled": config.enable_cors,
+                "wildcard_origin": cors_wildcard_origin,
+                "credentials": cors_credentials,
+            },
         }
+
+    # Surface effective config in startup logs so operators don't have to
+    # hit /health to confirm.
+    logger.info(
+        "Effective config: host=%s port=%d auth=%s api_keys=%d "
+        "cors=%s wildcard_origin=%s",
+        config.host,
+        config.port,
+        config.enable_auth,
+        len(config.allowed_api_keys),
+        config.enable_cors,
+        cors_wildcard_origin,
+    )
 
     # Exception handlers
     @app.exception_handler(HTTPException)

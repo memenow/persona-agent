@@ -94,7 +94,7 @@ async def create_agent(
             created_at=agent_info["created_at"],
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating agent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating agent: {e}") from e
 
 
 @router.delete(

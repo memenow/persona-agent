@@ -22,12 +22,15 @@ logger = logging.getLogger("agent_factory")
 class AgentSession:
     """Represents an agent session with conversation history.
 
+    Conversation messages live on the bound ``PersonaAgentExecutor`` and are
+    surfaced through the :attr:`messages` property; this object only retains
+    session metadata.
+
     Attributes:
         id: Unique identifier for the session.
         agent_id: ID of the agent associated with this session.
         persona_id: ID of the persona used by the agent.
         executor: PersonaAgentExecutor instance for this session.
-        messages: List of messages exchanged in this session.
         created_at: Timestamp when the session was created.
         last_active: Timestamp of the last activity in this session.
     """
@@ -37,24 +40,26 @@ class AgentSession:
         self.agent_id: str = agent_id
         self.persona_id: str = persona_id
         self.executor: PersonaAgentExecutor = executor
-        self.messages: list[dict[str, Any]] = []
         self.created_at: float = time.monotonic()
         self.last_active: float = self.created_at
 
-    def add_message(self, role: str, content: str) -> None:
-        """Add a message to the conversation history."""
-        self.messages.append(
-            {
-                "role": role,
-                "content": content,
-                "timestamp": time.monotonic(),
-            }
-        )
-        self.last_active = time.monotonic()
+    @property
+    def messages(self) -> list[dict[str, Any]]:
+        """Project the executor history into the session message shape.
 
-    def get_messages(self) -> list[dict[str, Any]]:
-        """Get all messages in the conversation."""
-        return self.messages
+        Each entry includes the wall-clock ``timestamp`` recorded when the
+        executor appended that turn. Older entries that predate timestamp
+        tracking surface as ``0.0``.
+        """
+        history = self.executor.get_history(self.id)
+        return [
+            {
+                "role": entry.get("role", ""),
+                "content": entry.get("content", ""),
+                "timestamp": entry.get("timestamp", 0.0),
+            }
+            for entry in history
+        ]
 
 
 class AgentFactory:
@@ -248,15 +253,14 @@ class AgentFactory:
             return False, "Session not found"
 
         try:
-            session.add_message("user", message)
-
-            # Use the executor's LLM loop directly (session.id as context_id)
-            response = await session.executor._run_llm_loop(session.id, message)
+            # Delegate to the executor's public chat method; session.id is the
+            # conversation context so the executor manages history internally.
+            response = await session.executor.chat(session.id, message)
 
             if not response:
                 return False, "Failed to get response from agent"
 
-            session.add_message("assistant", response)
+            session.last_active = time.monotonic()
             return True, response
 
         except Exception as e:

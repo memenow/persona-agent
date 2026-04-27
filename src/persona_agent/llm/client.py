@@ -48,6 +48,7 @@ class LLMClient(ABC):
         self,
         messages: list[ChatCompletionMessageParam],
         tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> ChatResponse:
@@ -56,6 +57,12 @@ class LLMClient(ABC):
         Args:
             messages: Conversation messages in OpenAI format.
             tools: Optional tool definitions in OpenAI function calling format.
+            tool_choice: Optional override for the OpenAI ``tool_choice``
+                parameter. Pass ``"none"`` to force a textual answer while
+                keeping prior tool-call context, ``"required"`` to force a
+                tool call, a dict to pin a specific tool, or ``None`` to let
+                the implementation pick the default ("auto" when ``tools``
+                is provided, otherwise unset).
             temperature: Sampling temperature override.
             max_tokens: Max tokens override.
 
@@ -135,6 +142,7 @@ class OpenAICompatibleClient(LLMClient):
         self,
         messages: list[ChatCompletionMessageParam],
         tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> ChatResponse:
@@ -150,7 +158,7 @@ class OpenAICompatibleClient(LLMClient):
         }
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
+            kwargs["tool_choice"] = tool_choice if tool_choice is not None else "auto"
 
         logger.debug(
             "LLM request: model=%s messages=%d tools=%d",

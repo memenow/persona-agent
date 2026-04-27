@@ -1,12 +1,21 @@
 """Persona manager for loading and managing persona definitions."""
 
 import json
+import logging
 import os
+import re
 import uuid
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+# Regex for validating persona IDs: lowercase ASCII letters, digits, hyphen,
+# underscore. Length 1-64. Used both as a Pydantic validator and for
+# defense-in-depth checks before any filesystem operation.
+_PERSONA_ID_PATTERN = r"^[a-z0-9_-]{1,64}$"
 
 
 class Persona(BaseModel):
@@ -15,6 +24,7 @@ class Persona(BaseModel):
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Unique ID for the persona",
+        pattern=_PERSONA_ID_PATTERN,
     )
     name: str = Field(..., description="Name of the persona")
     description: str = Field(default="", description="Description of the persona")
@@ -96,12 +106,7 @@ class Persona(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Persona":
         """Create a Persona instance from a dictionary."""
-        # Handle optional system_prompt
-        system_prompt = data.pop("system_prompt", None)
-        persona = cls(**data)
-        if system_prompt:
-            persona.system_prompt = system_prompt
-        return persona
+        return cls(**data)
 
 
 class PersonaManager:
@@ -130,7 +135,7 @@ class PersonaManager:
                     if persona:
                         self.personas[persona.id] = persona
                 except Exception as e:
-                    print(f"Error loading persona from {file_path}: {e}")
+                    logger.warning("Error loading persona from %s: %s", file_path, e)
 
     def _load_persona_file(self, file_path: str) -> Persona | None:
         """Load a persona definition from a file."""
@@ -141,16 +146,52 @@ class PersonaManager:
                 else:  # YAML file
                     data = yaml.safe_load(f)
 
-                # Ensure an ID is present
-                if "id" not in data:
-                    base_name = os.path.basename(file_path)
-                    name = os.path.splitext(base_name)[0]
-                    data["id"] = name
+                normalized_id = self._resolve_persona_id(data, file_path)
+                if normalized_id is None:
+                    return None
+                data["id"] = normalized_id
 
                 return Persona.from_dict(data)
         except Exception as e:
-            print(f"Error loading persona file {file_path}: {e}")
+            logger.warning("Error loading persona file %s: %s", file_path, e)
             return None
+
+    @staticmethod
+    def _resolve_persona_id(data: dict[str, Any], file_path: str) -> str | None:
+        """Resolve a regex-conformant persona id from file contents.
+
+        If the file declares an ``id`` that already matches the canonical
+        pattern, it is returned unchanged. If it declares an ``id`` that does
+        not match (e.g., uppercase, dots, spaces from older files), the value
+        is sanitized in place and the change is logged so the user can update
+        the file. If no ``id`` is declared, the filename stem is sanitized.
+        Returns ``None`` when no usable id can be produced; the file should
+        then be skipped.
+        """
+        raw = data.get("id")
+        if isinstance(raw, str) and re.match(_PERSONA_ID_PATTERN, raw):
+            return raw
+
+        if isinstance(raw, str) and raw:
+            sanitized = re.sub(r"[^a-z0-9_-]", "-", raw.lower()).strip("-")[:64]
+            if sanitized:
+                logger.warning(
+                    "Persona id %r in %s does not match %s; normalized to %r",
+                    raw,
+                    file_path,
+                    _PERSONA_ID_PATTERN,
+                    sanitized,
+                )
+                return sanitized
+
+        base_name = os.path.basename(file_path)
+        stem = os.path.splitext(base_name)[0]
+        sanitized = re.sub(r"[^a-z0-9_-]", "-", stem.lower()).strip("-")[:64]
+        if sanitized:
+            return sanitized
+
+        logger.warning("Skipping persona file %s: cannot derive a valid id", file_path)
+        return None
 
     def get_persona(self, persona_id: str) -> Persona | None:
         """Get a persona by ID."""
@@ -194,13 +235,26 @@ class PersonaManager:
         if format not in ("json", "yaml"):
             raise ValueError("Format must be 'json' or 'yaml'")
 
-        filename = f"{persona.id}.{format}"
+        # Defense-in-depth: even though the Persona model already constrains
+        # `id` via a regex, reject any value that looks like a path traversal
+        # attempt or contains separator/null bytes before touching the FS.
+        persona_id = persona.id
+        if (
+            not re.match(_PERSONA_ID_PATTERN, persona_id)
+            or ".." in persona_id
+            or "/" in persona_id
+            or "\\" in persona_id
+            or "\x00" in persona_id
+        ):
+            raise ValueError("Invalid persona id")
+
+        filename = f"{persona_id}.{format}"
         file_path = os.path.join(self.personas_dir, filename)
 
         with open(file_path, "w", encoding="utf-8") as f:
             if format == "json":
-                json.dump(persona.dict(), f, indent=2)
+                json.dump(persona.model_dump(), f, indent=2)
             else:
-                yaml.dump(persona.dict(), f, default_flow_style=False)
+                yaml.dump(persona.model_dump(), f, default_flow_style=False)
 
         return file_path

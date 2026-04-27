@@ -178,3 +178,6 @@ cython_debug/
 
 # Claude Code personal config
 CLAUDE.local.md
+
+# Serena MCP project state
+.serena/

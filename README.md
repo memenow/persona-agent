@@ -58,8 +58,6 @@ The project is organized into several key components:
 Start the API server:
 
 ```bash
-uv run python run_api_server.py
-# or via CLI
 uv run persona-agent api
 ```
 
@@ -188,7 +186,6 @@ persona-agent/
 │       │   └── direct_mcp.py # Direct MCP stdio manager
 │       └── cli.py           # Command-line interface
 ├── tests/                   # Test suite
-├── run_api_server.py        # Server startup script
 ├── pyproject.toml           # Project dependencies and metadata
 └── uv.lock                  # Dependency lock file
 ```

@@ -12,9 +12,6 @@ AI persona agents built on Google A2A protocol with FastAPI REST API and MCP too
 # Install dependencies
 uv sync
 
-# Run API server
-uv run python run_api_server.py
-
 # Lint and format
 uv run ruff check .
 uv run ruff format .
@@ -34,7 +31,6 @@ Three-layer structure under `src/persona_agent/`:
 - **a2a/** — A2A protocol integration: `PersonaAgentExecutor` (implements `AgentExecutor`), `AgentCard` builder. Each persona is an A2A agent.
 - **llm/** — LLM client abstraction with `OpenAICompatibleClient` using the `openai` SDK directly. Supports any OpenAI-compatible provider.
 - **mcp/** — `DirectMCPManager` using the `mcp` library directly for stdio server lifecycle, tool loading, and execution.
-- **core/** — `PersonaProfile` dataclass for persona data.
 
 ## Key Files
 
@@ -59,7 +55,7 @@ Key env vars: `OPENAI_API_KEY`, `PERSONAS_DIR` (default: `examples/personas`), `
 
 ## Persona Schema
 
-Persona YAML files require: `name`, `description`, `personal_background`, `language_style`, `knowledge_domains`, `interaction_samples`. The `PersonaProfile.from_dict()` method handles backward compatibility between old and new format.
+Persona YAML files require: `name`, `description`, `personal_background`, `language_style`, `knowledge_domains`, `interaction_samples`. The `Persona` Pydantic model (in `api/persona_manager.py`) validates structure and constrains `id` to `^[a-z0-9_-]{1,64}$`.
 
 ## MCP Config
 
