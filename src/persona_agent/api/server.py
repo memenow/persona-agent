@@ -157,11 +157,11 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
         dependencies=[Depends(verify_api_key)],
     )
 
-    # A2A discovery/listing routes are protected. The persona sub-apps mounted
-    # later by ``registry.mount_all(app)`` are SDK-built ASGI applications and
-    # remain unprotected for now; wrapping them in middleware for stricter
-    # A2A authentication is a follow-up.
-    app.include_router(a2a_router, dependencies=[Depends(verify_api_key)])
+    # A2A discovery routes (aggregate agent card, persona listing) are public
+    # by protocol design: external agents must be able to discover this hub
+    # without holding an API key. The mounted SDK sub-apps are similarly
+    # public. Authentication only gates the REST CRUD surface above.
+    app.include_router(a2a_router)
 
     # Health check
     @app.get("/health", tags=["health"])

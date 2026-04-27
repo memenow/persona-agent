@@ -146,23 +146,52 @@ class PersonaManager:
                 else:  # YAML file
                     data = yaml.safe_load(f)
 
-                # Ensure an ID is present
-                if "id" not in data:
-                    base_name = os.path.basename(file_path)
-                    name = os.path.splitext(base_name)[0]
-                    sanitized = re.sub(r"[^a-z0-9_-]", "-", name.lower())
-                    if not sanitized:
-                        logger.warning(
-                            "Skipping persona file %s: filename produces empty id",
-                            file_path,
-                        )
-                        return None
-                    data["id"] = sanitized[:64]
+                normalized_id = self._resolve_persona_id(data, file_path)
+                if normalized_id is None:
+                    return None
+                data["id"] = normalized_id
 
                 return Persona.from_dict(data)
         except Exception as e:
             logger.warning("Error loading persona file %s: %s", file_path, e)
             return None
+
+    @staticmethod
+    def _resolve_persona_id(data: dict[str, Any], file_path: str) -> str | None:
+        """Resolve a regex-conformant persona id from file contents.
+
+        If the file declares an ``id`` that already matches the canonical
+        pattern, it is returned unchanged. If it declares an ``id`` that does
+        not match (e.g., uppercase, dots, spaces from older files), the value
+        is sanitized in place and the change is logged so the user can update
+        the file. If no ``id`` is declared, the filename stem is sanitized.
+        Returns ``None`` when no usable id can be produced; the file should
+        then be skipped.
+        """
+        raw = data.get("id")
+        if isinstance(raw, str) and re.match(_PERSONA_ID_PATTERN, raw):
+            return raw
+
+        if isinstance(raw, str) and raw:
+            sanitized = re.sub(r"[^a-z0-9_-]", "-", raw.lower()).strip("-")[:64]
+            if sanitized:
+                logger.warning(
+                    "Persona id %r in %s does not match %s; normalized to %r",
+                    raw,
+                    file_path,
+                    _PERSONA_ID_PATTERN,
+                    sanitized,
+                )
+                return sanitized
+
+        base_name = os.path.basename(file_path)
+        stem = os.path.splitext(base_name)[0]
+        sanitized = re.sub(r"[^a-z0-9_-]", "-", stem.lower()).strip("-")[:64]
+        if sanitized:
+            return sanitized
+
+        logger.warning("Skipping persona file %s: cannot derive a valid id", file_path)
+        return None
 
     def get_persona(self, persona_id: str) -> Persona | None:
         """Get a persona by ID."""
