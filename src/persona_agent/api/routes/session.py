@@ -1,5 +1,7 @@
 """API routes for session management."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from persona_agent.api.dependencies import get_agent_factory
@@ -13,6 +15,8 @@ from persona_agent.api.models import (
     SessionResponse,
     SuccessResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -171,35 +175,13 @@ async def send_message(
         success, response = await agent_factory.send_message(
             session_id, request.message
         )
-
-        if not success:
-            # Check if this is a connection error and provide a friendly error message instead of a 500 status code
-            if "Connection error" in response:
-                # Return error message with 200 status code so client can handle it
-                return SendMessageResponse(
-                    session_id=session_id,
-                    success=False,
-                    response="OpenAI API Connection error. You can set ALLOW_LOCAL_FALLBACK=true environment variable to enable local response mode. Error details: "
-                    + response,
-                )
-            else:
-                # Other error messages, still return with 200 status code
-                return SendMessageResponse(
-                    session_id=session_id, success=False, response=response
-                )
-
         return SendMessageResponse(
             session_id=session_id, success=success, response=response
         )
     except Exception as e:
-        import traceback
-
-        error_details = traceback.format_exc()
-
-        # Catch all exceptions and return a friendly error message instead of a 500 error
+        logger.exception("Error sending message in session %s", session_id)
         return SendMessageResponse(
             session_id=session_id,
             success=False,
-            response=f"Error processing message: {str(e)}",
-            error_details=error_details,
+            response=f"Error processing message: {e}",
         )

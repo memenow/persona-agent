@@ -9,12 +9,13 @@ import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from persona_agent.a2a.executor import PersonaAgentExecutor
 from persona_agent.api.agent_factory import AgentFactory
+from persona_agent.api.auth import verify_api_key
 from persona_agent.api.config import ApiConfig, load_config
 from persona_agent.api.dependencies import (
     get_agent_factory,
@@ -120,10 +121,16 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
 
     # CORS
     if config.enable_cors:
+        allow_credentials = True
+        if any(origin == "*" for origin in config.allowed_origins):
+            allow_credentials = False
+            logger.warning(
+                "CORS allow_credentials disabled because allowed_origins contains '*'."
+            )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=config.allowed_origins,
-            allow_credentials=True,
+            allow_credentials=allow_credentials,
             allow_methods=["*"],
             allow_headers=["*"],
         )
@@ -133,13 +140,28 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
     app.dependency_overrides[get_persona_manager] = lambda: persona_manager
     app.dependency_overrides[get_agent_factory] = lambda: agent_factory
 
-    # REST API routes
-    app.include_router(persona.router, prefix=config.api_prefix)
-    app.include_router(agent.router, prefix=config.api_prefix)
-    app.include_router(session.router, prefix=config.api_prefix)
+    # REST API routes (protected by API key when enable_auth is True)
+    app.include_router(
+        persona.router,
+        prefix=config.api_prefix,
+        dependencies=[Depends(verify_api_key)],
+    )
+    app.include_router(
+        agent.router,
+        prefix=config.api_prefix,
+        dependencies=[Depends(verify_api_key)],
+    )
+    app.include_router(
+        session.router,
+        prefix=config.api_prefix,
+        dependencies=[Depends(verify_api_key)],
+    )
 
-    # A2A protocol routes
-    app.include_router(a2a_router)
+    # A2A discovery/listing routes are protected. The persona sub-apps mounted
+    # later by ``registry.mount_all(app)`` are SDK-built ASGI applications and
+    # remain unprotected for now; wrapping them in middleware for stricter
+    # A2A authentication is a follow-up.
+    app.include_router(a2a_router, dependencies=[Depends(verify_api_key)])
 
     # Health check
     @app.get("/health", tags=["health"])

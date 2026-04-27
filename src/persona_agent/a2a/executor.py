@@ -1,6 +1,6 @@
 """PersonaAgentExecutor: A2A executor that wraps persona logic with LLM + MCP tools.
 
-Uses a direct LLM call loop that handles tool execution internally.
+Provides a direct LLM chat method that handles tool execution internally.
 """
 
 import json
@@ -85,7 +85,7 @@ class PersonaAgentExecutor(AgentExecutor):
         )
 
         # Signal working state
-        event_queue.enqueue_event(
+        await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 context_id=context_id,
                 task_id=task_id,
@@ -95,14 +95,10 @@ class PersonaAgentExecutor(AgentExecutor):
         )
 
         try:
-            response_text = await self._run_llm_loop(context_id, user_text)
-
-            # Store assistant response in history
-            history = self._get_history(context_id)
-            history.append({"role": "assistant", "content": response_text})
+            response_text = await self.chat(context_id, user_text)
 
             # Emit completed status with the agent message
-            event_queue.enqueue_event(
+            await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     context_id=context_id,
                     task_id=task_id,
@@ -133,7 +129,7 @@ class PersonaAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Cancel a running task."""
-        event_queue.enqueue_event(
+        await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 context_id=context.context_id,
                 task_id=context.task_id,
@@ -142,8 +138,8 @@ class PersonaAgentExecutor(AgentExecutor):
             )
         )
 
-    async def _run_llm_loop(self, context_id: str, user_text: str) -> str:
-        """Run the LLM with tool calling loop until a text response is produced.
+    async def chat(self, context_id: str, user_text: str) -> str:
+        """Run the LLM with tool calling until a text response is produced.
 
         Args:
             context_id: Conversation context ID for history tracking.
@@ -172,7 +168,9 @@ class PersonaAgentExecutor(AgentExecutor):
             response = await self.llm_client.chat(messages=messages, tools=tools)
 
             if not response.has_tool_calls:
-                return response.content or ""
+                content = response.content or ""
+                history.append({"role": "assistant", "content": content})
+                return content
 
             # Process tool calls
             logger.info(
@@ -218,14 +216,26 @@ class PersonaAgentExecutor(AgentExecutor):
                     }
                 )
 
-        # Exceeded max iterations — force a final response without tools
+        # Exceeded max iterations — force a final response without tools.
         logger.warning(
             "Persona %s exceeded max tool iterations (%d), forcing final response",
             self.persona_name,
             MAX_TOOL_ITERATIONS,
         )
-        response = await self.llm_client.chat(messages=messages, tools=None)
-        return response.content or ""
+        # Strip tool_calls and tool-role entries before re-issuing without tools:
+        # some OpenAI-compatible providers reject payloads containing tool_calls
+        # while `tools=None`, so we keep only system, user, and plain assistant
+        # turns to coerce a textual answer.
+        sanitized_messages: list[dict[str, Any]] = [
+            msg
+            for msg in messages
+            if msg.get("role") in {"system", "user"}
+            or (msg.get("role") == "assistant" and "tool_calls" not in msg)
+        ]
+        response = await self.llm_client.chat(messages=sanitized_messages, tools=None)
+        content = response.content or ""
+        history.append({"role": "assistant", "content": content})
+        return content
 
     def _get_history(self, context_id: str) -> list[dict[str, Any]]:
         """Get or create conversation history for a context.
@@ -245,6 +255,14 @@ class PersonaAgentExecutor(AgentExecutor):
         """Clear conversation history for a context."""
         self._histories.pop(context_id, None)
 
+    def get_history(self, context_id: str) -> list[dict[str, Any]]:
+        """Return a snapshot of the conversation history for a context.
+
+        Returns an empty list when the context has no recorded history.
+        Callers should treat the return value as read-only.
+        """
+        return list(self._histories.get(context_id, []))
+
     async def _emit_error(
         self,
         event_queue: EventQueue,
@@ -253,7 +271,7 @@ class PersonaAgentExecutor(AgentExecutor):
         error_message: str,
     ) -> None:
         """Emit a failed task status."""
-        event_queue.enqueue_event(
+        await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 context_id=context_id,
                 task_id=task_id,

@@ -5,9 +5,12 @@ including settings for server, authentication, CORS, and model configurations.
 """
 
 import json
+import logging
 import os
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 # Constants for environment variable names, avoiding hardcoding
 ENV_API_HOST = "API_HOST"
@@ -51,7 +54,13 @@ class ApiConfig(BaseModel):
         openai_api_base: Optional custom OpenAI API base URL.
     """
 
-    host: str = Field(default="0.0.0.0", description="Host to bind the API server")
+    host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Host to bind the API server "
+            "(default 127.0.0.1; set to 0.0.0.0 to expose externally)"
+        ),
+    )
     port: int = Field(default=8000, description="Port to bind the API server")
     debug: bool = Field(default=False, description="Run in debug mode")
     api_prefix: str = Field(default="/api/v1", description="API endpoint prefix")
@@ -128,7 +137,7 @@ def load_config() -> ApiConfig:
         An ApiConfig instance with the loaded configuration.
     """
     config = ApiConfig(
-        host=os.environ.get(ENV_API_HOST, "0.0.0.0"),
+        host=os.environ.get(ENV_API_HOST, "127.0.0.1"),
         port=int(os.environ.get(ENV_API_PORT, "8000")),
         debug=os.environ.get(ENV_API_DEBUG, "").lower() in ("true", "1", "yes"),
         api_prefix=os.environ.get(ENV_API_PREFIX, "/api/v1"),
@@ -173,8 +182,10 @@ def load_config() -> ApiConfig:
                             config.openai_api_base = model_config.get("api_base")
                         break
     except Exception as e:
-        print(
-            f"Warning: Failed to load LLM configuration from {config.llm_config_path}: {e}"
+        logger.warning(
+            "Failed to load LLM configuration from %s: %s",
+            config.llm_config_path,
+            e,
         )
         # Fallback to environment variables
         if not config.openai_api_key:

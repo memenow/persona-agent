@@ -75,14 +75,14 @@ async def create_persona(
     persona: CreatePersonaRequest, persona_manager=Depends(get_persona_manager)
 ):
     """Create a new persona."""
-    persona_data = persona.dict(exclude_unset=True)
+    persona_data = persona.model_dump(exclude_unset=True)
     new_persona = persona_manager.add_persona(persona_data)
 
     # Save the persona to a file
     try:
         persona_manager.save_persona(new_persona, format="json")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving persona: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving persona: {e}") from e
 
     return PersonaResponse(
         id=new_persona.id, name=new_persona.name, description=new_persona.description
@@ -108,13 +108,13 @@ async def update_persona(
         )
 
     # Update only provided fields
-    update_data = persona.dict(exclude_unset=True)
+    update_data = persona.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         if value is not None:
             setattr(existing_persona, field, value)
 
     updated_persona = persona_manager.update_persona(
-        persona_id, existing_persona.dict()
+        persona_id, existing_persona.model_dump()
     )
     if not updated_persona:
         raise HTTPException(status_code=500, detail="Failed to update persona")
@@ -123,7 +123,7 @@ async def update_persona(
     try:
         persona_manager.save_persona(updated_persona, format="json")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving persona: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving persona: {e}") from e
 
     return PersonaResponse(
         id=updated_persona.id,
@@ -186,7 +186,9 @@ async def upload_persona(
         try:
             persona_manager.save_persona(new_persona, format="json")
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error saving persona: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Error saving persona: {e}"
+            ) from e
 
         return PersonaResponse(
             id=new_persona.id,
@@ -194,8 +196,10 @@ async def upload_persona(
             description=new_persona.description,
         )
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON file")
+        raise HTTPException(status_code=400, detail="Invalid JSON file") from None
     except yaml.YAMLError:
-        raise HTTPException(status_code=400, detail="Invalid YAML file")
+        raise HTTPException(status_code=400, detail="Invalid YAML file") from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error processing file: {str(e)}"
+        ) from e

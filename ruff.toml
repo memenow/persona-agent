@@ -4,7 +4,7 @@ line-length = 88
 
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
-ignore = ["E501"]  # line length handled by formatter
+ignore = ["E501", "B008"]  # line length handled by formatter; B008 is the FastAPI Depends idiom
 
 [lint.isort]
 known-first-party = ["persona_agent"]
