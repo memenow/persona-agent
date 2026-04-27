@@ -3,8 +3,10 @@
 Provides a direct LLM chat method that handles tool execution internally.
 """
 
+import asyncio
 import json
 import logging
+import time
 import uuid
 from collections import OrderedDict
 from typing import Any
@@ -55,6 +57,10 @@ class PersonaAgentExecutor(AgentExecutor):
         # Conversation history per context_id for multi-turn support.
         # Uses OrderedDict as an LRU cache to cap memory usage.
         self._histories: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+        # Per-context locks serialize ``chat()`` calls sharing a context_id so
+        # concurrent A2A or REST requests cannot interleave their history
+        # appends. Lock objects are evicted alongside their history entries.
+        self._locks: dict[str, asyncio.Lock] = {}
 
     async def execute(
         self,
@@ -141,6 +147,9 @@ class PersonaAgentExecutor(AgentExecutor):
     async def chat(self, context_id: str, user_text: str) -> str:
         """Run the LLM with tool calling until a text response is produced.
 
+        Concurrent calls that share a ``context_id`` are serialized via a
+        per-context lock so their history entries cannot interleave.
+
         Args:
             context_id: Conversation context ID for history tracking.
             user_text: The user's message text.
@@ -148,13 +157,21 @@ class PersonaAgentExecutor(AgentExecutor):
         Returns:
             The final text response from the LLM.
         """
-        history = self._get_history(context_id)
-        history.append({"role": "user", "content": user_text})
+        async with self._get_lock(context_id):
+            return await self._chat_locked(context_id, user_text)
 
-        # Build messages with system prompt
+    async def _chat_locked(self, context_id: str, user_text: str) -> str:
+        history = self._get_history(context_id)
+        history.append({"role": "user", "content": user_text, "timestamp": time.time()})
+
+        # Build messages with system prompt; history entries are projected
+        # back to the bare {role, content} shape OpenAI expects.
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
-            *history,
+            *(
+                {"role": entry["role"], "content": entry["content"]}
+                for entry in history
+            ),
         ]
 
         # Get available tools in OpenAI format
@@ -169,7 +186,13 @@ class PersonaAgentExecutor(AgentExecutor):
 
             if not response.has_tool_calls:
                 content = response.content or ""
-                history.append({"role": "assistant", "content": content})
+                history.append(
+                    {
+                        "role": "assistant",
+                        "content": content,
+                        "timestamp": time.time(),
+                    }
+                )
                 return content
 
             # Process tool calls
@@ -216,44 +239,55 @@ class PersonaAgentExecutor(AgentExecutor):
                     }
                 )
 
-        # Exceeded max iterations — force a final response without tools.
+        # Exceeded max iterations — force a textual final response while
+        # preserving the full message context. Passing ``tool_choice="none"``
+        # alongside the original ``tools`` list lets the model see what was
+        # tried so far without being allowed to invoke another tool. When
+        # there are no tools to begin with we fall back to a plain call.
         logger.warning(
             "Persona %s exceeded max tool iterations (%d), forcing final response",
             self.persona_name,
             MAX_TOOL_ITERATIONS,
         )
-        # Strip tool_calls and tool-role entries before re-issuing without tools:
-        # some OpenAI-compatible providers reject payloads containing tool_calls
-        # while `tools=None`, so we keep only system, user, and plain assistant
-        # turns to coerce a textual answer.
-        sanitized_messages: list[dict[str, Any]] = [
-            msg
-            for msg in messages
-            if msg.get("role") in {"system", "user"}
-            or (msg.get("role") == "assistant" and "tool_calls" not in msg)
-        ]
-        response = await self.llm_client.chat(messages=sanitized_messages, tools=None)
+        if tools:
+            response = await self.llm_client.chat(
+                messages=messages, tools=tools, tool_choice="none"
+            )
+        else:
+            response = await self.llm_client.chat(messages=messages)
         content = response.content or ""
-        history.append({"role": "assistant", "content": content})
+        history.append(
+            {"role": "assistant", "content": content, "timestamp": time.time()}
+        )
         return content
+
+    def _get_lock(self, context_id: str) -> asyncio.Lock:
+        lock = self._locks.get(context_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[context_id] = lock
+        return lock
 
     def _get_history(self, context_id: str) -> list[dict[str, Any]]:
         """Get or create conversation history for a context.
 
-        Evicts the oldest context when the cache exceeds MAX_CONTEXT_HISTORIES.
+        Evicts the oldest context when the cache exceeds MAX_CONTEXT_HISTORIES;
+        the corresponding lock is released at the same time so the lock map
+        does not outlive the history map.
         """
         if context_id in self._histories:
             self._histories.move_to_end(context_id)
         else:
             self._histories[context_id] = []
-            # Evict oldest entries when cache is full
             while len(self._histories) > MAX_CONTEXT_HISTORIES:
-                self._histories.popitem(last=False)
+                evicted, _ = self._histories.popitem(last=False)
+                self._locks.pop(evicted, None)
         return self._histories[context_id]
 
     def clear_history(self, context_id: str) -> None:
         """Clear conversation history for a context."""
         self._histories.pop(context_id, None)
+        self._locks.pop(context_id, None)
 
     def get_history(self, context_id: str) -> list[dict[str, Any]]:
         """Return a snapshot of the conversation history for a context.

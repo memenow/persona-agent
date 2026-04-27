@@ -4,41 +4,29 @@ import logging
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Security
+from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from persona_agent.api.config import ApiConfig
-from persona_agent.api.dependencies import get_config
 
 logger = logging.getLogger(__name__)
 
-# Module-level singletons keep the security scheme out of argument defaults,
-# which keeps ruff's B008 happy and mirrors FastAPI's recommended Annotated
-# pattern.
-_API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-ConfigDep = Annotated[ApiConfig, Depends(get_config)]
-ApiKeyDep = Annotated[str | None, Security(_API_KEY_HEADER)]
+def make_api_key_dependency(config: ApiConfig) -> Callable:
+    """Build a FastAPI dependency that enforces ``config.api_key_header``.
 
-
-def make_api_key_dependency() -> Callable:
-    """Build a FastAPI dependency that enforces X-API-Key when auth is enabled.
-
-    The header name and allowed keys come from the active ApiConfig.
-    When ``enable_auth`` is False, the dependency is a no-op so unauthenticated
-    callers continue to work in dev.
-
-    TODO: The header name is currently fixed to ``X-API-Key`` because
-    ``APIKeyHeader`` resolves the header name at instance construction time.
-    Supporting an arbitrary ``config.api_key_header`` per request would
-    require building the security scheme inside a closure that reads the
-    active configuration, which is deferred until a real need arises.
+    The returned coroutine reads the configured header (default
+    ``X-API-Key``) and validates it against ``config.allowed_api_keys``.
+    When ``config.enable_auth`` is False the dependency is a no-op so
+    unauthenticated callers continue to work in dev. Construction time
+    binds the security scheme to the active ``config.api_key_header``,
+    so renaming the header takes effect on app restart.
     """
 
-    async def verify_api_key(
-        config: ConfigDep,
-        api_key_header: ApiKeyDep,
-    ) -> None:
+    api_key_scheme = APIKeyHeader(name=config.api_key_header, auto_error=False)
+    ApiKeyDep = Annotated[str | None, Security(api_key_scheme)]
+
+    async def verify_api_key(api_key_header: ApiKeyDep = None) -> None:
         if not config.enable_auth:
             return
         if not config.allowed_api_keys:
@@ -50,6 +38,3 @@ def make_api_key_dependency() -> Callable:
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
     return verify_api_key
-
-
-verify_api_key = make_api_key_dependency()

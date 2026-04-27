@@ -1,11 +1,16 @@
 """Regression tests for ``PersonaAgentExecutor``.
 
-The primary concern is the historical bug where ``event_queue.enqueue_event``
-(an ``async def`` in a2a-sdk 0.3.x) was invoked without ``await``, so status
-events never reached A2A clients. These tests assert each lifecycle hook
-actually awaits the queue.
+Coverage:
+- Each lifecycle hook awaits ``EventQueue.enqueue_event`` (regression for the
+  historical missing-await bug).
+- ``chat()`` persists user/assistant turns with wall-clock timestamps.
+- The tool-iteration cap forces a textual answer using ``tool_choice="none"``
+  while preserving full message context.
+- Concurrent ``chat()`` calls sharing a context_id are serialized so history
+  pairs stay intact.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from persona_agent.a2a.executor import PersonaAgentExecutor
@@ -71,28 +76,40 @@ async def test_chat_persists_user_and_assistant_to_history() -> None:
     ]
 
 
-async def test_chat_fallback_strips_tool_messages_after_max_iterations() -> None:
+async def test_chat_records_wall_clock_timestamps() -> None:
+    """History entries must carry ``timestamp`` so REST callers can order
+    messages chronologically."""
+    import time
+
+    before = time.time()
+    executor = _make_executor(ChatResponse(content="answer", tool_calls=[]))
+    await executor.chat("ctx", "question")
+    after = time.time()
+    history = executor.get_history("ctx")
+    for entry in history:
+        assert "timestamp" in entry
+        assert before <= entry["timestamp"] <= after
+
+
+async def test_chat_fallback_uses_tool_choice_none_with_full_context() -> None:
     """When the tool loop exhausts ``MAX_TOOL_ITERATIONS``, the executor must
-    re-issue the final completion with only ``system``/``user``/plain
-    ``assistant`` turns to satisfy stricter providers."""
-    llm = MagicMock()
+    re-issue the final completion with ``tool_choice="none"`` while keeping
+    ``tool_calls``/``tool`` messages intact (so the model retains context)."""
+    captured: dict = {}
     tool_response = ChatResponse(
         content=None,
         tool_calls=[ToolCall(id="1", name="t", arguments={})],
     )
     final_response = ChatResponse(content="forced", tool_calls=[])
 
-    # Always return tool calls until the fallback call, which has tools=None.
-    async def fake_chat(messages, tools=None, **kwargs):
-        if tools is None:
-            sanitized_roles = {m["role"] for m in messages}
-            assert "tool" not in sanitized_roles
-            assert all(
-                "tool_calls" not in m for m in messages if m["role"] == "assistant"
-            )
+    async def fake_chat(messages, tools=None, tool_choice=None, **kwargs):
+        if tool_choice == "none":
+            captured["messages"] = messages
+            captured["tools"] = tools
             return final_response
         return tool_response
 
+    llm = MagicMock()
     llm.chat = fake_chat
     mcp = MagicMock()
     mcp.is_initialized = True
@@ -109,3 +126,63 @@ async def test_chat_fallback_strips_tool_messages_after_max_iterations() -> None
 
     result = await executor.chat("ctx", "question")
     assert result == "forced"
+    # The full context (including tool/tool_calls turns) must be preserved.
+    roles = [m["role"] for m in captured["messages"]]
+    assert "tool" in roles
+    assert any("tool_calls" in m for m in captured["messages"])
+    # And tools are still passed (so the provider validates the request).
+    assert captured["tools"] is not None
+
+
+async def test_chat_serializes_concurrent_calls_on_same_context() -> None:
+    """Two concurrent ``chat()`` calls on the same context must produce
+    paired (user, assistant) entries instead of interleaved history."""
+
+    async def fake_chat(messages, **kwargs):
+        latest_user = next(m for m in reversed(messages) if m["role"] == "user")[
+            "content"
+        ]
+        # Yield to the scheduler so the other coroutine has a chance to
+        # interleave if locking is broken.
+        await asyncio.sleep(0.01)
+        return ChatResponse(content=f"reply-{latest_user}", tool_calls=[])
+
+    llm = MagicMock()
+    llm.chat = fake_chat
+    executor = PersonaAgentExecutor(
+        persona_id="p",
+        persona_name="P",
+        system_prompt="sys",
+        llm_client=llm,
+    )
+
+    await asyncio.gather(
+        executor.chat("ctx", "a"),
+        executor.chat("ctx", "b"),
+    )
+    history = executor.get_history("ctx")
+    assert len(history) == 4
+    # Each user turn must be immediately followed by its matching assistant.
+    pair1, pair2 = history[0:2], history[2:4]
+    for user_entry, assistant_entry in (pair1, pair2):
+        assert user_entry["role"] == "user"
+        assert assistant_entry["role"] == "assistant"
+        assert assistant_entry["content"] == f"reply-{user_entry['content']}"
+
+
+async def test_clear_history_drops_lock() -> None:
+    """Locks should not outlive their context's history."""
+    executor = PersonaAgentExecutor(
+        persona_id="p",
+        persona_name="P",
+        system_prompt="sys",
+        llm_client=MagicMock(),
+    )
+    # Force lock creation by entering chat() machinery indirectly.
+    lock = executor._get_lock("ctx")  # noqa: SLF001 — internal helper
+    assert "ctx" in executor._locks  # noqa: SLF001
+    executor._histories["ctx"] = [{"role": "user", "content": "x"}]
+    executor.clear_history("ctx")
+    assert "ctx" not in executor._locks  # noqa: SLF001
+    assert "ctx" not in executor._histories  # noqa: SLF001
+    del lock

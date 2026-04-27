@@ -45,18 +45,18 @@ class AgentSession:
 
     @property
     def messages(self) -> list[dict[str, Any]]:
-        """Project the executor history into the legacy session message shape.
+        """Project the executor history into the session message shape.
 
-        The executor stores entries as ``{"role", "content"}``. The legacy
-        ``timestamp`` field is preserved for API compatibility but is no longer
-        tracked per message; callers should treat the value as deprecated.
+        Each entry includes the wall-clock ``timestamp`` recorded when the
+        executor appended that turn. Older entries that predate timestamp
+        tracking surface as ``0.0``.
         """
         history = self.executor.get_history(self.id)
         return [
             {
                 "role": entry.get("role", ""),
                 "content": entry.get("content", ""),
-                "timestamp": 0.0,
+                "timestamp": entry.get("timestamp", 0.0),
             }
             for entry in history
         ]

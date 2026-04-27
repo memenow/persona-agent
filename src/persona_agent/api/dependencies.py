@@ -30,3 +30,15 @@ def get_agent_factory() -> AgentFactory:
     """
     config = get_config()
     return AgentFactory(llm_config_path=config.llm_config_path)
+
+
+def clear_dependency_caches() -> None:
+    """Reset all ``@lru_cache`` singletons.
+
+    Intended for test setup/teardown so each test sees a fresh ``ApiConfig``,
+    ``PersonaManager``, and ``AgentFactory``. Production code should rely on
+    ``app.dependency_overrides`` instead.
+    """
+    get_config.cache_clear()
+    get_persona_manager.cache_clear()
+    get_agent_factory.cache_clear()
