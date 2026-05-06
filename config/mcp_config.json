@@ -5,9 +5,6 @@
             "args": [
                 "mcp-server-fetch"
             ],
-            "env": {
-                "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-            },
             "disabled": false,
             "autoApprove": [
                 "fetch"
@@ -15,4 +12,4 @@
             "description": "Web content fetching and conversion for efficient LLM usage"
         }
     }
-} 
+}

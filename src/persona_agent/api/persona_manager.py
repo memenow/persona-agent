@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 _PERSONA_ID_PATTERN = r"^[a-z0-9_-]{1,64}$"
 
 
+class PersonaPersistenceError(RuntimeError):
+    """Raised when persisted persona files cannot be updated."""
+
+
 class Persona(BaseModel):
     """Persona model representing a character definition."""
 
@@ -115,6 +119,7 @@ class PersonaManager:
     def __init__(self, personas_dir: str):
         self.personas_dir = personas_dir
         self.personas: dict[str, Persona] = {}
+        self._persona_files: dict[str, set[str]] = {}
         self._load_personas()
 
     def _load_personas(self) -> None:
@@ -134,6 +139,7 @@ class PersonaManager:
                     persona = self._load_persona_file(file_path)
                     if persona:
                         self.personas[persona.id] = persona
+                        self._persona_files.setdefault(persona.id, set()).add(file_path)
                 except Exception as e:
                     logger.warning("Error loading persona from %s: %s", file_path, e)
 
@@ -227,8 +233,31 @@ class PersonaManager:
         if persona_id not in self.personas:
             return False
 
+        try:
+            self._delete_persona_files(persona_id)
+        except OSError as exc:
+            logger.exception("Error deleting persona files for %s", persona_id)
+            raise PersonaPersistenceError(
+                f"Error deleting persona files for {persona_id}"
+            ) from exc
+
         del self.personas[persona_id]
         return True
+
+    def _delete_persona_files(self, persona_id: str) -> None:
+        """Delete persisted files associated with a persona."""
+        root = os.path.abspath(self.personas_dir)
+        candidates = set(self._persona_files.get(persona_id, set()))
+
+        for file_path in candidates:
+            abs_path = os.path.abspath(file_path)
+            if os.path.commonpath([root, abs_path]) != root:
+                logger.warning("Skipping persona file outside personas_dir: %s", file_path)
+                continue
+            if os.path.isfile(abs_path):
+                os.remove(abs_path)
+
+        self._persona_files.pop(persona_id, None)
 
     def save_persona(self, persona: Persona, format: str = "json") -> str:
         """Save a persona to a file."""
@@ -257,4 +286,5 @@ class PersonaManager:
             else:
                 yaml.dump(persona.model_dump(), f, default_flow_style=False)
 
+        self._persona_files.setdefault(persona.id, set()).add(file_path)
         return file_path
