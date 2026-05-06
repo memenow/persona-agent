@@ -195,6 +195,28 @@ def test_llm_env_api_base_overrides_config(monkeypatch) -> None:
     assert str(client._client.base_url) == "https://env.example/v1/"
 
 
+def test_llm_model_api_key_overrides_global_openai_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "global-openai-key")
+
+    client = OpenAICompatibleClient.from_config(
+        {
+            "default_model": "provider-a",
+            "api_key": "top-key",
+            "api_base": "https://top.example/v1",
+            "model_configs": [
+                {
+                    "model": "provider-a",
+                    "api_key": "provider-a-key",
+                    "api_base": "https://provider-a.example/v1",
+                }
+            ],
+        }
+    )
+
+    assert client._client.api_key == "provider-a-key"
+    assert str(client._client.base_url) == "https://provider-a.example/v1/"
+
+
 def test_public_base_url_uses_explicit_config() -> None:
     config = ApiConfig(
         host="0.0.0.0",

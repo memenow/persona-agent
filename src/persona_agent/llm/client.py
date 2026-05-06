@@ -136,9 +136,7 @@ class OpenAICompatibleClient(LLMClient):
 
         return cls(
             model=matched.get("model") or matched.get("name", default_model),
-            api_key=os.environ.get("OPENAI_API_KEY")
-            or matched.get("api_key")
-            or config.get("api_key"),
+            api_key=matched.get("api_key") or config.get("api_key"),
             base_url=env_base_url or matched.get("api_base") or config.get("api_base"),
             temperature=matched.get("temperature", 0.7),
             max_tokens=matched.get("max_tokens", 4000),
