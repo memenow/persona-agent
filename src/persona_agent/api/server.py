@@ -38,6 +38,20 @@ logging.basicConfig(
 logger = logging.getLogger("api_server")
 
 
+def _resolve_public_base_url(config: ApiConfig) -> str:
+    """Return the externally reachable base URL for discovery metadata."""
+    if config.public_base_url:
+        return config.public_base_url.rstrip("/")
+
+    host = config.host
+    if host in ("0.0.0.0", "::", ""):
+        host = "localhost"
+    elif ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+
+    return f"http://{host}:{config.port}"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage MCP service lifecycle and A2A registry setup."""
@@ -59,7 +73,7 @@ async def lifespan(app: FastAPI):
     # Set up A2A registry with all loaded personas
     persona_manager: PersonaManager = app.state.persona_manager
     llm_client = app.state.llm_client
-    registry = A2ARegistry(base_url=f"http://{config.host}:{config.port}")
+    registry = A2ARegistry(base_url=_resolve_public_base_url(config))
 
     for p_info in persona_manager.list_personas():
         p = persona_manager.get_persona(p_info["id"])

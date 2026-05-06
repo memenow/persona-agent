@@ -85,7 +85,9 @@ class AgentFactory:
 
         # MCP manager — injected or None (lazy init)
         self._mcp_manager = mcp_manager
-        self._mcp_initialized = False
+        self._mcp_initialized = bool(
+            self._mcp_manager is not None and self._mcp_manager.is_initialized
+        )
 
     def _create_llm_client(self) -> LLMClient:
         """Create LLM client from configuration file."""
@@ -101,6 +103,10 @@ class AgentFactory:
     async def _ensure_mcp(self) -> DirectMCPManager | None:
         """Ensure MCP manager is initialized."""
         if self._mcp_initialized:
+            return self._mcp_manager
+
+        if self._mcp_manager is not None and self._mcp_manager.is_initialized:
+            self._mcp_initialized = True
             return self._mcp_manager
 
         if not self.llm_config_path:

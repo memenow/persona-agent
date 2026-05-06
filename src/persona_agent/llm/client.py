@@ -124,16 +124,22 @@ class OpenAICompatibleClient(LLMClient):
         # Find the config matching default_model, fall back to first entry
         matched = {}
         for mc in model_configs:
-            if mc.get("model") == default_model:
+            if mc.get("model") == default_model or mc.get("name") == default_model:
                 matched = mc
                 break
         if not matched and model_configs:
             matched = model_configs[0]
 
+        env_base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get(
+            "OPENAI_API_BASE"
+        )
+
         return cls(
-            model=matched.get("model", default_model),
-            api_key=matched.get("api_key") or config.get("api_key"),
-            base_url=config.get("api_base"),
+            model=matched.get("model") or matched.get("name", default_model),
+            api_key=os.environ.get("OPENAI_API_KEY")
+            or matched.get("api_key")
+            or config.get("api_key"),
+            base_url=env_base_url or matched.get("api_base") or config.get("api_base"),
             temperature=matched.get("temperature", 0.7),
             max_tokens=matched.get("max_tokens", 4000),
         )

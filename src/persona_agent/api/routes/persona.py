@@ -14,6 +14,7 @@ from persona_agent.api.models import (
     SuccessResponse,
     UpdatePersonaRequest,
 )
+from persona_agent.api.persona_manager import PersonaPersistenceError
 
 router = APIRouter(prefix="/personas", tags=["personas"])
 
@@ -140,7 +141,12 @@ async def update_persona(
 )
 async def delete_persona(persona_id: str, persona_manager=Depends(get_persona_manager)):
     """Delete a persona."""
-    if not persona_manager.delete_persona(persona_id):
+    try:
+        deleted = persona_manager.delete_persona(persona_id)
+    except PersonaPersistenceError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if not deleted:
         raise HTTPException(
             status_code=404, detail=f"Persona with ID {persona_id} not found"
         )
