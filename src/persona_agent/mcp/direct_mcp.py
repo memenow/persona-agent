@@ -124,10 +124,16 @@ class DirectMCPManager:
                 logger.warning("No command for MCP service: %s", name)
                 continue
 
-            # Substitute environment variables in command and args
+            # Substitute environment variables in command, args, and env values.
             command = self._substitute_env_vars(command)
             args = [self._substitute_env_vars(a) for a in server_config.get("args", [])]
-            env = server_config.get("env", {})
+            raw_env = server_config.get("env", {})
+            env = {
+                key: self._substitute_env_vars(value)
+                if isinstance(value, str)
+                else str(value)
+                for key, value in raw_env.items()
+            }
 
             if await self._connect_service(name, command, args, env):
                 success = True

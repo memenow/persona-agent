@@ -22,6 +22,7 @@ ENV_API_KEY_HEADER = "API_KEY_HEADER"
 ENV_API_ALLOWED_KEYS = "API_ALLOWED_KEYS"
 ENV_API_ENABLE_CORS = "API_ENABLE_CORS"
 ENV_API_ALLOWED_ORIGINS = "API_ALLOWED_ORIGINS"
+ENV_API_PUBLIC_BASE_URL = "API_PUBLIC_BASE_URL"
 ENV_PERSONAS_DIR = "PERSONAS_DIR"
 ENV_LLM_CONFIG_PATH = "LLM_CONFIG_PATH"
 ENV_OPENAI_API_KEY = "OPENAI_API_KEY"
@@ -52,6 +53,7 @@ class ApiConfig(BaseModel):
         default_model: Default LLM model to use for agents.
         openai_api_key: Optional OpenAI API key.
         openai_api_base: Optional custom OpenAI API base URL.
+        public_base_url: Optional externally reachable API base URL.
     """
 
     host: str = Field(
@@ -78,6 +80,10 @@ class ApiConfig(BaseModel):
     enable_cors: bool = Field(default=True, description="Enable CORS")
     allowed_origins: list[str] = Field(
         default=["*"], description="Allowed origins for CORS"
+    )
+    public_base_url: str | None = Field(
+        default=None,
+        description="Externally reachable API base URL used in discovery metadata",
     )
 
     # Persona settings
@@ -150,6 +156,7 @@ def load_config() -> ApiConfig:
         enable_cors=os.environ.get(ENV_API_ENABLE_CORS, "").lower()
         not in ("false", "0", "no"),
         allowed_origins=os.environ.get(ENV_API_ALLOWED_ORIGINS, "*").split(","),
+        public_base_url=os.environ.get(ENV_API_PUBLIC_BASE_URL),
         personas_dir=os.environ.get(ENV_PERSONAS_DIR, ApiConfig().personas_dir),
         llm_config_path=os.environ.get(
             ENV_LLM_CONFIG_PATH, ApiConfig().llm_config_path
