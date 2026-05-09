@@ -1,6 +1,7 @@
 """API routes for persona management."""
 
 import json
+import logging
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -15,6 +16,8 @@ from persona_agent.api.models import (
     UpdatePersonaRequest,
 )
 from persona_agent.api.persona_manager import PersonaPersistenceError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/personas", tags=["personas"])
 
@@ -83,7 +86,8 @@ async def create_persona(
     try:
         persona_manager.save_persona(new_persona, format="json")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving persona: {e}") from e
+        logger.exception("Error saving persona %s", new_persona.id)
+        raise HTTPException(status_code=500, detail="Error saving persona") from e
 
     return PersonaResponse(
         id=new_persona.id, name=new_persona.name, description=new_persona.description
@@ -124,7 +128,8 @@ async def update_persona(
     try:
         persona_manager.save_persona(updated_persona, format="json")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving persona: {e}") from e
+        logger.exception("Error saving persona %s", updated_persona.id)
+        raise HTTPException(status_code=500, detail="Error saving persona") from e
 
     return PersonaResponse(
         id=updated_persona.id,
@@ -192,9 +197,8 @@ async def upload_persona(
         try:
             persona_manager.save_persona(new_persona, format="json")
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error saving persona: {e}"
-            ) from e
+            logger.exception("Error saving uploaded persona %s", new_persona.id)
+            raise HTTPException(status_code=500, detail="Error saving persona") from e
 
         return PersonaResponse(
             id=new_persona.id,
@@ -206,6 +210,5 @@ async def upload_persona(
     except yaml.YAMLError:
         raise HTTPException(status_code=400, detail="Invalid YAML file") from None
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error processing file: {str(e)}"
-        ) from e
+        logger.exception("Error processing uploaded persona file %s", file.filename)
+        raise HTTPException(status_code=500, detail="Error processing file") from e

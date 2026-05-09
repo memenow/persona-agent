@@ -1,5 +1,7 @@
 """API routes for agent management."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from persona_agent.api.dependencies import get_agent_factory, get_persona_manager
@@ -9,6 +11,8 @@ from persona_agent.api.models import (
     CreateAgentRequest,
     SuccessResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -94,7 +98,8 @@ async def create_agent(
             created_at=agent_info["created_at"],
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating agent: {e}") from e
+        logger.exception("Error creating agent for persona %s", request.persona_id)
+        raise HTTPException(status_code=500, detail="Error creating agent") from e
 
 
 @router.delete(
