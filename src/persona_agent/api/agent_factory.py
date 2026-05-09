@@ -40,7 +40,10 @@ class AgentSession:
         self.agent_id: str = agent_id
         self.persona_id: str = persona_id
         self.executor: PersonaAgentExecutor = executor
-        self.created_at: float = time.monotonic()
+        # Wall-clock seconds — exposed as ``created_at`` / ``last_active`` on the
+        # API surface, so clients can correlate with message timestamps recorded
+        # by ``PersonaAgentExecutor``.
+        self.created_at: float = time.time()
         self.last_active: float = self.created_at
 
     @property
@@ -161,7 +164,7 @@ class AgentFactory:
             "id": agent_id,
             "persona_id": persona.id,
             "executor": executor,
-            "created_at": time.monotonic(),
+            "created_at": time.time(),
         }
 
         logger.info("Created agent %s for persona %s", agent_id, persona.name)
@@ -266,9 +269,9 @@ class AgentFactory:
             if not response:
                 return False, "Failed to get response from agent"
 
-            session.last_active = time.monotonic()
+            session.last_active = time.time()
             return True, response
 
-        except Exception as e:
+        except Exception:
             logger.exception("Error in send_message")
-            return False, f"Error: {e}"
+            return False, "Error processing message"
