@@ -178,10 +178,10 @@ async def send_message(
         return SendMessageResponse(
             session_id=session_id, success=success, response=response
         )
-    except Exception as e:
+    except Exception:
         logger.exception("Error sending message in session %s", session_id)
         return SendMessageResponse(
             session_id=session_id,
             success=False,
-            response=f"Error processing message: {e}",
+            response="Error processing message",
         )

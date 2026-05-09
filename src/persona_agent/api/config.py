@@ -150,9 +150,14 @@ def load_config() -> ApiConfig:
         enable_auth=os.environ.get(ENV_API_ENABLE_AUTH, "").lower()
         in ("true", "1", "yes"),
         api_key_header=os.environ.get(ENV_API_KEY_HEADER, "X-API-Key"),
-        allowed_api_keys=os.environ.get(ENV_API_ALLOWED_KEYS, "").split(",")
-        if os.environ.get(ENV_API_ALLOWED_KEYS)
-        else [],
+        allowed_api_keys=[
+            key
+            for key in (
+                raw.strip()
+                for raw in os.environ.get(ENV_API_ALLOWED_KEYS, "").split(",")
+            )
+            if key
+        ],
         enable_cors=os.environ.get(ENV_API_ENABLE_CORS, "").lower()
         not in ("false", "0", "no"),
         allowed_origins=os.environ.get(ENV_API_ALLOWED_ORIGINS, "*").split(","),

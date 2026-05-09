@@ -226,12 +226,17 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        import traceback
-
-        logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
+        # Never echo ``str(exc)`` to clients — raw exception messages can carry
+        # local paths, secrets, or internal type names. Log with traceback and
+        # return a stable, non-revealing payload instead.
+        logger.exception(
+            "Unhandled exception while processing %s %s",
+            request.method,
+            request.url.path,
+        )
         return JSONResponse(
             status_code=500,
-            content={"detail": "Internal server error", "message": str(exc)},
+            content={"detail": "Internal server error"},
         )
 
     return app
