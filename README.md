@@ -1,224 +1,156 @@
 # Persona Agent
 
-A Python-based API server for creating and interacting with AI personas using the [Google A2A (Agent-to-Agent) protocol](https://github.com/google/A2A) and Model Context Protocol (MCP) tools integration.
+A Python service that exposes AI personas as
+[Google A2A protocol](https://github.com/google/A2A) agents. Each persona
+is also reachable through a REST API for management and direct chat.
 
-## Overview
-
-This project provides a robust API for creating AI personas that can interact with users through natural language. Built on the Google A2A protocol and the `a2a-sdk`, each persona is exposed as a discoverable A2A agent with standardized agent cards, JSON-RPC messaging, and external tool capabilities via MCP.
+Built directly on `a2a-sdk`, the `openai` SDK, and the `mcp` library —
+no framework wrappers in between.
 
 ## Features
 
-- **Persona-based AI Agents**: Create and interact with AI agents that simulate specific personas
-- **Google A2A Protocol**: Each persona is an A2A-compliant agent with discoverable agent cards and JSON-RPC endpoints
-- **Model Context Protocol Integration**: Enhance AI capabilities with external tools through MCP stdio servers
-- **RESTful API**: Comprehensive REST API for managing personas, agents, and conversations
-- **Tool-Augmented Responses**: Enable agents to use external tools to respond to user queries
-- **Configurable Behavior**: Customize persona characteristics through YAML/JSON configuration files
-- **OpenAI-Compatible LLM Support**: Works with any OpenAI-compatible provider (OpenAI, Azure, Ollama, vLLM, etc.)
+- **A2A-native personas**: every persona is mounted as an independent
+  A2A ASGI sub-app with discoverable agent cards and a JSON-RPC endpoint.
+- **REST API**: CRUD for personas, agents, and sessions, with file
+  upload support.
+- **MCP tool integration**: stdio MCP servers are loaded at startup; the
+  LLM can call their tools mid-conversation.
+- **OpenAI-compatible LLMs**: works with OpenAI, Azure OpenAI, Ollama,
+  vLLM, LiteLLM, or any other OpenAI-API-compatible provider.
+- **YAML / JSON personas**: declarative character files with background,
+  language style, knowledge domains, and interaction samples.
+- **Operations-friendly**: opt-in API key auth, configurable CORS,
+  health endpoint exposing effective config.
 
-## Architecture
-
-The project is organized into several key components:
-
-- **API Server**: FastAPI implementation for REST API endpoints and A2A sub-app mounting
-- **A2A Integration**: `PersonaAgentExecutor` implements the A2A executor interface; each persona is mounted as an independent ASSI sub-app
-- **Persona Management**: Load and manage persona definitions from JSON/YAML files
-- **Agent Factory**: Create and configure persona agents with LLM clients and MCP tools
-- **LLM Client**: Framework-agnostic abstraction using the `openai` SDK directly
-- **MCP Integration**: `DirectMCPManager` for stdio server lifecycle, tool discovery, and execution
-- **Session Management**: Handle conversation sessions between users and agents
-
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/memenow/persona-agent.git
-   cd persona-agent
-   ```
-
-2. Install dependencies using [uv](https://docs.astral.sh/uv/):
-   ```bash
-   uv sync
-   ```
-
-3. Configure API keys:
-   Create a `config/llm_config.json` file with your API keys and model configurations:
-   ```json
-   {
-     "default_model": "gpt-4o",
-     "api_key": "your-api-key-here",
-     "api_base": "https://api.openai.com/v1"
-   }
-   ```
-
-## Usage
-
-### Running the API Server
-
-Start the API server:
+## Quick start
 
 ```bash
+git clone https://github.com/memenow/persona-agent.git
+cd persona-agent
+uv sync
 uv run persona-agent api
 ```
 
-The API will be available at http://localhost:8000/api/v1/ with Swagger documentation at http://localhost:8000/docs.
+The server binds to `http://127.0.0.1:8000` by default. Swagger UI is at
+`/docs`, the aggregate A2A agent card at `/.well-known/agent.json`, the
+REST surface under `/api/v1`.
 
-### CLI Commands
-
-```bash
-uv run persona-agent api              # Start API server
-uv run persona-agent list-personas    # List available personas
-uv run persona-agent agent-card       # Show A2A agent cards
-uv run persona-agent import-persona FILE  # Import persona file
-```
-
-### API Endpoints
-
-#### A2A Endpoints
-
-- `GET /.well-known/agent.json`: Aggregate agent card for all personas
-- `GET /a2a/{persona_id}/.well-known/agent-card.json`: Individual persona agent card
-- `POST /a2a/{persona_id}/`: A2A JSON-RPC endpoint
-- `GET /a2a/personas`: List all A2A persona agents
-
-#### Personas API
-
-- `GET /api/v1/personas`: List all available personas
-- `GET /api/v1/personas/{id}`: Get a specific persona's details
-- `POST /api/v1/personas`: Create a new persona
-- `PUT /api/v1/personas/{id}`: Update an existing persona
-- `DELETE /api/v1/personas/{id}`: Delete a persona
-
-#### Agents API
-
-- `GET /api/v1/agents`: List all active agents
-- `GET /api/v1/agents/{id}`: Get a specific agent's details
-- `POST /api/v1/agents`: Create a new agent based on a persona
-- `DELETE /api/v1/agents/{id}`: Delete an agent
-
-#### Sessions API
-
-- `GET /api/v1/sessions`: List all active sessions
-- `GET /api/v1/sessions/{id}`: Get a specific session's details
-- `POST /api/v1/sessions`: Create a new conversation session
-- `DELETE /api/v1/sessions/{id}`: Delete a session
-- `POST /api/v1/sessions/{id}/messages`: Send a message to an agent
-- `GET /api/v1/sessions/{id}/events`: Stream session events (SSE)
-
-### Persona Configuration
-
-Personas can be defined in JSON or YAML format:
+Set your LLM credentials in `config/llm_config.json` (see
+[docs/configuration.md](docs/configuration.md)):
 
 ```json
 {
-  "name": "Albert Einstein",
-  "description": "Theoretical physicist and Nobel laureate",
-  "personal_background": {
-    "birth": "March 14, 1879, Ulm, Germany",
-    "education": "ETH Zurich, University of Zurich",
-    "profession": "Physicist, Professor"
-  },
-  "language_style": {
-    "tone": "Thoughtful, inquisitive, sometimes whimsical",
-    "common_phrases": ["Imagination is more important than knowledge", "Everything should be made as simple as possible, but not simpler"]
-  },
-  "knowledge_domains": {
-    "physics": ["Relativity theory", "Quantum mechanics", "Brownian motion"],
-    "philosophy": ["Scientific determinism", "Pacifism", "Religious views"]
-  },
-  "interaction_samples": [
+  "default_model": "gpt-4o-mini",
+  "model_configs": [
     {
-      "type": "conversation",
-      "content": "Q: What is the most important scientific principle?\nA: The principle of curiosity - to never stop questioning. That is the source of all knowledge and discovery."
+      "name": "gpt-4o-mini",
+      "model": "gpt-4o-mini",
+      "api_key": "sk-...",
+      "api_base": "https://api.openai.com/v1",
+      "temperature": 0.7,
+      "max_tokens": 4000
     }
   ]
 }
 ```
 
-### MCP Configuration
+For a quick start, leave the `api_key` fields empty in the file and
+export `OPENAI_API_KEY`. The LLM client falls back to that environment
+variable only when both the per-model and file-level `api_key` are
+empty — non-empty file values take precedence.
 
-To configure MCP services, create a `config/mcp_config.json` file:
+## CLI
 
-```json
-{
-  "mcpServers": {
-    "brave_search": {
-      "command": "node",
-      "args": ["path/to/mcp-brave-search/index.js"],
-      "env": {
-        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
-      },
-      "description": "Brave Search MCP service"
-    }
-  }
-}
+```bash
+uv run persona-agent api                    # start the API server
+uv run persona-agent list-personas          # list personas from PERSONAS_DIR
+uv run persona-agent agent-card             # dump A2A agent cards
+uv run persona-agent agent-card trump       # dump a single persona's card
+uv run persona-agent import-persona FILE    # import a JSON/YAML persona file
 ```
 
-Environment variables in the configuration (like `${BRAVE_API_KEY}`) will be automatically resolved at runtime.
+## Endpoints (overview)
 
-## Project Structure
+| Surface | Path | Notes |
+|---------|------|-------|
+| REST | `/api/v1/personas`, `/agents`, `/sessions` | CRUD; details in [docs/api-reference.md](docs/api-reference.md). |
+| REST | `POST /api/v1/personas/upload` | Upload a YAML/JSON persona file. |
+| REST | `GET /api/v1/sessions/{id}/messages`, `POST .../messages` | Read history; send a message and get a reply. |
+| A2A | `GET /.well-known/agent.json` | Aggregate card for every persona. |
+| A2A | `GET /a2a/personas` | List registered A2A agents. |
+| A2A | `GET /a2a/{persona_id}/.well-known/agent-card.json` | Per-persona agent card. |
+| A2A | `POST /a2a/{persona_id}/` | A2A JSON-RPC endpoint. |
+| Ops | `GET /health` | Public health/effective-config probe. |
+| Ops | `GET /docs`, `/openapi.json` | Swagger UI / OpenAPI schema. |
+
+REST routes are protected by an opt-in API-key dependency (off by
+default). A2A surfaces are public by protocol design. See
+[docs/authentication.md](docs/authentication.md).
+
+## Persona example
+
+```yaml
+name: Donald Trump
+description: 45th President of the United States…
+personal_background:
+  birth: June 14, 1946, Queens, New York City, USA
+language_style:
+  tone: Assertive, direct, hyperbolic
+  common_phrases: ["Believe me", "Tremendous"]
+knowledge_domains:
+  politics: [American politics, Immigration policy, Trade policy]
+interaction_samples:
+  - type: quote
+    content: "We will make America strong again."
+```
+
+The persona schema, including ID rules and the system-prompt generator,
+is documented in [docs/persona-schema.md](docs/persona-schema.md).
+
+## Project layout
 
 ```
 persona-agent/
-├── config/                  # Configuration files
-│   ├── llm_config.json      # LLM API keys and settings
-│   └── mcp_config.json      # MCP services configuration
-├── examples/                # Example code and personas
-│   └── personas/            # Example persona definitions
-├── src/                     # Source code
-│   └── persona_agent/       # Main package
-│       ├── a2a/             # A2A protocol integration
-│       │   ├── agent_card.py    # AgentCard builder
-│       │   └── executor.py      # PersonaAgentExecutor
-│       ├── api/             # API implementation
-│       │   ├── routes/      # API route handlers
-│       │   ├── agent_factory.py # Agent creation factory
-│       │   ├── config.py    # API configuration
-│       │   ├── dependencies.py  # FastAPI dependencies
-│       │   ├── models.py    # Pydantic API models
-│       │   ├── persona_manager.py # Persona data management
-│       │   └── server.py    # FastAPI server + A2A registry
-│       ├── core/            # Core functionality
-│       │   └── persona_profile.py # PersonaProfile dataclass
-│       ├── llm/             # LLM client abstraction
-│       │   └── client.py    # OpenAI-compatible client
-│       ├── mcp/             # MCP integration
-│       │   └── direct_mcp.py # Direct MCP stdio manager
-│       └── cli.py           # Command-line interface
-├── tests/                   # Test suite
-├── pyproject.toml           # Project dependencies and metadata
-└── uv.lock                  # Dependency lock file
+├── config/                          LLM and MCP JSON configs
+├── docs/                            In-depth documentation
+├── examples/personas/               Example persona files
+├── src/persona_agent/
+│   ├── a2a/        agent_card.py, executor.py
+│   ├── api/        routes/, agent_factory.py, auth.py, config.py,
+│   │               dependencies.py, models.py, persona_manager.py, server.py
+│   ├── llm/        client.py (LLMClient + OpenAICompatibleClient)
+│   ├── mcp/        direct_mcp.py (DirectMCPManager)
+│   └── cli.py
+├── tests/                           pytest suite
+└── pyproject.toml
 ```
+
+## Documentation
+
+| File | What it covers |
+|------|----------------|
+| [docs/api-reference.md](docs/api-reference.md) | REST endpoints with payloads and status codes. |
+| [docs/a2a-protocol.md](docs/a2a-protocol.md) | A2A integration, agent cards, mount strategy, executor behavior. |
+| [docs/persona-schema.md](docs/persona-schema.md) | Persona fields, ID rules, examples, prompt generator. |
+| [docs/configuration.md](docs/configuration.md) | Environment variables, `llm_config.json`, `mcp_config.json`. |
+| [docs/mcp-integration.md](docs/mcp-integration.md) | MCP stdio lifecycle, env-var substitution, tool execution. |
+| [docs/authentication.md](docs/authentication.md) | API keys, CORS, public vs protected routes. |
+| [docs/deployment.md](docs/deployment.md) | Bind, reverse proxy, logging, containerization. |
+| [docs/development.md](docs/development.md) | Setup, lint, format, test, project layout. |
+| [docs/changelog.md](docs/changelog.md) | Notable changes by pull request. |
 
 ## Development
 
-### Setting Up Development Environment
-
 ```bash
-# Clone the repository
-git clone https://github.com/memenow/persona-agent.git
-cd persona-agent
-
-# Install dependencies
 uv sync
-
-# Lint and format
 uv run ruff check .
 uv run ruff format .
-
-# Run tests
 uv run pytest
 ```
 
-### Adding New MCP Services
+Python 3.11+ required. Full development notes in
+[docs/development.md](docs/development.md).
 
-1. Add the service configuration to `config/mcp_config.json`
-2. The service will be automatically loaded by the `DirectMCPManager` class
+## License
 
-### Extending Personas
-
-To add new persona capabilities:
-
-1. Enhance the `PersonaProfile` class in `src/persona_agent/core/persona_profile.py`
-2. Update the persona JSON/YAML schema accordingly
-3. Update the API models in `src/persona_agent/api/models.py`
+See [LICENSE](LICENSE).
