@@ -1,6 +1,7 @@
-"""MCP manager using the mcp library directly.
+"""Direct MCP stdio manager.
 
-Handles stdio server lifecycle, tool discovery, and tool execution.
+The manager owns server processes through async exit stacks, discovers tools,
+and adapts MCP tool metadata to OpenAI-compatible function definitions.
 """
 
 import json
@@ -15,7 +16,8 @@ from mcp.client.stdio import stdio_client
 
 logger = logging.getLogger(__name__)
 
-# Maximum number of retries for loading tools from a service
+# Connection retries are per service so one flaky server does not block all
+# configured servers from being attempted.
 MAX_RETRIES = 3
 
 
@@ -70,10 +72,7 @@ class MCPServiceConnection:
 
 
 class DirectMCPManager:
-    """MCP service and tool manager using the mcp library directly.
-
-    Manages stdio server lifecycle, tool loading, and tool execution.
-    """
+    """Manage MCP stdio services and route tool calls by tool name."""
 
     def __init__(self) -> None:
         self._exit_stack = AsyncExitStack()
@@ -101,7 +100,8 @@ class DirectMCPManager:
 
         servers: dict[str, Any] = {}
 
-        # Support both "mcpServers" (new) and "services" (old) sections
+        # Accept both current and legacy section names so existing configs keep
+        # loading during the migration to ``mcpServers``.
         if "mcpServers" in config:
             servers.update(config["mcpServers"])
         if "services" in config:
@@ -124,7 +124,6 @@ class DirectMCPManager:
                 logger.warning("No command for MCP service: %s", name)
                 continue
 
-            # Substitute environment variables in command, args, and env values.
             command = self._substitute_env_vars(command)
             args = [self._substitute_env_vars(a) for a in server_config.get("args", [])]
             raw_env = server_config.get("env", {})
@@ -154,7 +153,8 @@ class DirectMCPManager:
         env: dict[str, str],
     ) -> bool:
         """Connect to a single MCP stdio service with retries."""
-        # Merge PATH from current environment if not provided
+        # Preserve the process environment, including PATH, unless the service
+        # explicitly overrides a variable.
         merged_env = dict(os.environ)
         merged_env.update(env)
 
@@ -165,8 +165,8 @@ class DirectMCPManager:
         )
 
         for attempt in range(1, MAX_RETRIES + 1):
-            # Use a local exit stack per attempt to avoid leaking
-            # half-initialized connections on failure
+            # A failed attempt should release any process/session resources it
+            # opened before the next retry starts.
             local_stack = AsyncExitStack()
             try:
                 logger.info(
@@ -185,7 +185,6 @@ class DirectMCPManager:
                 )
                 await session.initialize()
 
-                # List available tools
                 tools_result = await session.list_tools()
                 tools = tools_result.tools
 
@@ -194,7 +193,7 @@ class DirectMCPManager:
                     await local_stack.aclose()
                     return False
 
-                # Success — transfer ownership to the shared exit stack
+                # Keep the successful connection alive until ``close()``.
                 await self._exit_stack.enter_async_context(local_stack)
 
                 conn = MCPServiceConnection(name, session, tools)
@@ -214,7 +213,6 @@ class DirectMCPManager:
                 return True
 
             except Exception:
-                # Clean up the failed attempt's resources
                 await local_stack.aclose()
                 logger.exception(
                     "Failed to connect to MCP service %s (attempt %d/%d)",
@@ -245,7 +243,8 @@ class DirectMCPManager:
         try:
             result = await conn.call_tool(tool_name, arguments)
 
-            # Extract text content from result
+            # MCP results can contain multiple content blocks; concatenate text
+            # blocks for the LLM and stringify any non-text block.
             if hasattr(result, "content") and result.content:
                 parts = []
                 for part in result.content:
@@ -274,6 +273,7 @@ class DirectMCPManager:
 
     @property
     def is_initialized(self) -> bool:
+        """Return whether ``load_config`` has completed at least once."""
         return self._initialized
 
     async def close(self) -> None:

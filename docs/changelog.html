@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Changelog</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="changelog">Changelog</h1>
+<p>Notable changes since the AutoGen → A2A migration. Each entry is
+keyed by the merging pull request; full diffs live in
+<code>git log</code> and on GitHub.</p>
+<h2 id="unreleased">Unreleased</h2>
+<ul>
+<li>Documentation overhaul: split detailed reference material into
+<code>docs/</code>, tightened <code>README.md</code>, and aligned both
+with the current code surface.</li>
+<li>Documentation format: migrated the <code>docs/</code> reference set
+from Markdown to static HTML pages with a shared local stylesheet and
+<code>.html</code> internal links.</li>
+<li>Maintenance: refreshed code comments and docstrings so they
+emphasize security, concurrency, configuration precedence, and
+persistence invariants without restating obvious code behavior.</li>
+</ul>
+<h2 id="pr-9-17112b6">0.2.0 (PR #9 — <code>17112b6</code>)</h2>
+<p>P0 review follow-ups closing the last batch of API hardening
+items.</p>
+<ul>
+<li><strong>Timestamps</strong>: <code>AgentSession.created_at</code> /
+<code>last_active</code>, each <code>agents[*].created_at</code>, and
+every executor history entry are now Unix wall-clock seconds via
+<code>time.time()</code>. Clients can correlate session metadata with
+individual message timestamps.</li>
+<li><strong>Error responses</strong>: every unhandled exception is
+logged with <code>logger.exception(...)</code> and surfaces a generic
+<code>{ "detail": "Internal server error" }</code> to clients. Exception
+text is no longer echoed in HTTP responses.</li>
+<li><strong>API-key comparison</strong>: <code>verify_api_key</code>
+iterates the full allow-list without short-circuiting, using
+<code>secrets.compare_digest</code> on every entry. Empty headers are
+rejected outright.</li>
+<li><strong><code>API_ALLOWED_KEYS</code> parsing</strong>: blank
+entries from trailing commas or double commas are filtered, so a stray
+separator can no longer admit an empty key.</li>
+<li><strong>Repo metadata</strong>: added <code>.gitnexus/</code> to
+<code>.gitignore</code>; appended GitNexus guidance to
+<code>CLAUDE.md</code>.</li>
+</ul>
+<h2 id="pr-8-96baf48">PR #8 — <code>96baf48</code></h2>
+<p>Runtime config and persona persistence hardening.</p>
+<ul>
+<li><strong>LLM credential cascade</strong>: <code>load_config</code>
+reads <code>default_model</code> first, then loads
+<code>api_key</code>/<code>api_base</code> from the matching
+<code>model_configs</code> entry, with environment overrides winning. A
+global file-level <code>api_key</code> no longer overrides a per-model
+key.</li>
+<li><strong><code>save_persona</code> re-validation</strong>:
+<code>Persona.save_persona</code> re-checks the ID regex and rejects
+path-traversal patterns (<code>..</code>, <code>/</code>,
+<code>\</code>, null bytes) before touching the filesystem, even though
+the model’s Pydantic validator already constrains the same field.</li>
+<li><strong>Tests</strong>: added
+<code>tests/test_review_fixes.py</code> covering the new config and
+persistence paths.</li>
+</ul>
+<h2 id="pr-7-3fa9e14">PR #7 — <code>3fa9e14</code></h2>
+<p>A2A executor await fixes, path-traversal hardening, and broader
+security tightening.</p>
+<ul>
+<li><strong>Awaitable event queue</strong>: every
+<code>event_queue.enqueue_event(...)</code> call is awaited. Status
+updates that previously dropped silently now reach clients.</li>
+<li><strong>Shared <code>chat()</code> entry point</strong>: the legacy
+<code>_run_llm_loop</code> was promoted to a public
+<code>chat(context_id, user_text)</code> method. REST
+<code>send_message</code> and the A2A <code>execute</code> path both
+call it, so behavior cannot diverge.</li>
+<li><strong>Tool-iteration cap fallback</strong>: when
+<code>MAX_TOOL_ITERATIONS = 10</code> is exceeded, the executor forces a
+final completion with <code>tool_choice="none"</code>. Earlier versions
+stripped prior tool messages in a way that broke strict
+OpenAI-compatible providers.</li>
+<li><strong>Per-context concurrency</strong>: each
+<code>context_id</code> is now serialized by an
+<code>asyncio.Lock</code>. Concurrent A2A or REST calls on the same
+conversation cannot interleave history writes. Histories are stored in
+an LRU <code>OrderedDict</code> capped at 200 contexts; the
+corresponding lock is evicted with the history.</li>
+<li><strong>Persona ID safety</strong>: <code>Persona.id</code> is
+constrained by <code>^[a-z0-9_-]{1,64}$</code> at the Pydantic layer and
+re-checked on save and delete. The loader sanitizes legacy IDs in place
+(with a warning) so pre-existing files keep loading.</li>
+<li><strong>Networking defaults</strong>: server binds to
+<code>127.0.0.1</code> by default; CORS <code>allow_credentials</code>
+is forced off when <code>allowed_origins</code> contains <code>*</code>
+(with a warning).</li>
+<li><strong>Auth dependency</strong>: introduced
+<code>make_api_key_dependency(config)</code> producing a FastAPI
+dependency that enforces the configured header.</li>
+<li><strong>Pydantic v2</strong>: replaced every <code>.dict()</code>
+with <code>.model_dump()</code>.</li>
+<li><strong>Tests</strong>: added <code>test_auth.py</code>,
+<code>test_executor.py</code>,
+<code>test_persona_id_security.py</code>.</li>
+</ul>
+<h2 id="pr-6-d580a6e">PR #6 — <code>d580a6e</code></h2>
+<p>Documentation pass after the A2A migration.</p>
+<ul>
+<li>Removed stale AutoGen references from <code>README.md</code> and
+docstrings.</li>
+</ul>
+<h2 id="pr-5-bba117b">PR #5 — <code>bba117b</code></h2>
+<p>Migrated from AutoGen 0.4 to the Google A2A protocol.</p>
+<ul>
+<li><strong>Removed</strong>:
+<code>src/persona_agent/core/persona_agent.py</code>,
+<code>core/agent_factory.py</code>, and the AutoGen dependency.</li>
+<li><strong>Added</strong>: <code>a2a/executor.py</code>,
+<code>a2a/agent_card.py</code>, <code>llm/client.py</code>,
+<code>mcp/direct_mcp.py</code>. Each persona is now an independent A2A
+ASGI sub-app built via the SDK’s public
+<code>A2AFastAPIApplication.build()</code> API.</li>
+<li><strong>Shared infrastructure</strong>: REST routes and the A2A
+executor share a single <code>LLMClient</code> and
+<code>DirectMCPManager</code> via <code>AgentFactory</code>.</li>
+<li><strong>Net change</strong>: ~-2000 lines.</li>
+</ul>
+</main>
+</body>
+</html>

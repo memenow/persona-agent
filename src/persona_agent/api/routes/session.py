@@ -80,14 +80,12 @@ async def create_session(
     request: CreateSessionRequest, agent_factory=Depends(get_agent_factory)
 ):
     """Create a new session with an agent."""
-    # Check if the agent exists
     agent_info = agent_factory.get_agent(request.agent_id)
     if not agent_info:
         raise HTTPException(
             status_code=404, detail=f"Agent with ID {request.agent_id} not found"
         )
 
-    # Create the session
     session_id = agent_factory.create_session(request.agent_id)
     if not session_id:
         raise HTTPException(status_code=500, detail="Failed to create session")

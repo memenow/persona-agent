@@ -87,7 +87,6 @@ def show_agent_card(persona_id: str | None = None):
         )
         print(json.dumps(card.model_dump(exclude_none=True), indent=2))
     else:
-        # Show all persona cards
         personas = persona_manager.list_personas()
         if not personas:
             print("No personas found.")

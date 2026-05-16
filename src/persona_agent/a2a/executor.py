@@ -1,6 +1,7 @@
-"""PersonaAgentExecutor: A2A executor that wraps persona logic with LLM + MCP tools.
+"""A2A executor for persona chat with optional MCP tool calls.
 
-Provides a direct LLM chat method that handles tool execution internally.
+The executor is the shared runtime path for A2A requests and REST-backed
+sessions, so both surfaces use the same history, locking, and tool loop.
 """
 
 import asyncio
@@ -28,16 +29,17 @@ from persona_agent.mcp.direct_mcp import DirectMCPManager
 
 logger = logging.getLogger(__name__)
 
-# Maximum number of tool call iterations to prevent infinite loops
+# Tool loops are capped so a provider cannot request tools indefinitely.
 MAX_TOOL_ITERATIONS = 10
 MAX_CONTEXT_HISTORIES = 200
 
 
 class PersonaAgentExecutor(AgentExecutor):
-    """A2A executor that simulates a persona using LLM with MCP tool support.
+    """Run one persona as an A2A agent.
 
-    Each instance is bound to a specific persona and uses the persona's
-    system prompt to guide LLM responses.
+    Each executor is bound to one persona prompt and one LLM client. When an
+    MCP manager is available, the executor exposes those tools to the model
+    and executes requested tool calls inside the same conversation context.
     """
 
     def __init__(
@@ -54,8 +56,8 @@ class PersonaAgentExecutor(AgentExecutor):
         self.llm_client = llm_client
         self.mcp_manager = mcp_manager
 
-        # Conversation history per context_id for multi-turn support.
-        # Uses OrderedDict as an LRU cache to cap memory usage.
+        # OrderedDict provides LRU eviction for context histories and their
+        # paired locks without a separate cache dependency.
         self._histories: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
         # Per-context locks serialize ``chat()`` calls sharing a context_id so
         # concurrent A2A or REST requests cannot interleave their history
@@ -75,7 +77,6 @@ class PersonaAgentExecutor(AgentExecutor):
         context_id = context.context_id
         task_id = context.task_id
 
-        # Extract user message text
         user_text = context.get_user_input()
         if not user_text:
             await self._emit_error(
@@ -90,7 +91,6 @@ class PersonaAgentExecutor(AgentExecutor):
             user_text[:80],
         )
 
-        # Signal working state
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 context_id=context_id,
@@ -103,7 +103,6 @@ class PersonaAgentExecutor(AgentExecutor):
         try:
             response_text = await self.chat(context_id, user_text)
 
-            # Emit completed status with the agent message
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     context_id=context_id,
@@ -161,11 +160,17 @@ class PersonaAgentExecutor(AgentExecutor):
             return await self._chat_locked(context_id, user_text)
 
     async def _chat_locked(self, context_id: str, user_text: str) -> str:
+        """Append a user turn and run the provider/tool loop.
+
+        The caller must hold the context lock. This method updates the
+        durable in-memory history only with user and final assistant turns;
+        transient tool-call messages stay inside the provider request.
+        """
         history = self._get_history(context_id)
         history.append({"role": "user", "content": user_text, "timestamp": time.time()})
 
-        # Build messages with system prompt; history entries are projected
-        # back to the bare {role, content} shape OpenAI expects.
+        # Providers receive OpenAI-compatible message dictionaries, while
+        # history retains service metadata such as wall-clock timestamps.
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
             *(
@@ -174,7 +179,6 @@ class PersonaAgentExecutor(AgentExecutor):
             ),
         ]
 
-        # Get available tools in OpenAI format
         tools = None
         if self.mcp_manager and self.mcp_manager.is_initialized:
             openai_tools = self.mcp_manager.get_openai_tools()
@@ -195,7 +199,6 @@ class PersonaAgentExecutor(AgentExecutor):
                 )
                 return content
 
-            # Process tool calls
             logger.info(
                 "Persona %s tool calls (iteration %d): %s",
                 self.persona_name,
@@ -203,7 +206,6 @@ class PersonaAgentExecutor(AgentExecutor):
                 [tc.name for tc in response.tool_calls],
             )
 
-            # Append assistant message with tool calls to messages
             messages.append(
                 {
                     "role": "assistant",
@@ -222,7 +224,6 @@ class PersonaAgentExecutor(AgentExecutor):
                 }
             )
 
-            # Execute each tool and add results
             for tc in response.tool_calls:
                 if self.mcp_manager:
                     tool_result = await self.mcp_manager.call_tool(
@@ -239,11 +240,10 @@ class PersonaAgentExecutor(AgentExecutor):
                     }
                 )
 
-        # Exceeded max iterations — force a textual final response while
-        # preserving the full message context. Passing ``tool_choice="none"``
-        # alongside the original ``tools`` list lets the model see what was
-        # tried so far without being allowed to invoke another tool. When
-        # there are no tools to begin with we fall back to a plain call.
+        # Force a textual final response while preserving the full request
+        # context. Strict OpenAI-compatible providers validate tool messages
+        # against the original tool schema, so keep ``tools`` and disable only
+        # the next tool choice when a schema exists.
         logger.warning(
             "Persona %s exceeded max tool iterations (%d), forcing final response",
             self.persona_name,

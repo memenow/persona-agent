@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>REST API Reference</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="rest-api-reference">REST API Reference</h1>
+<p>The REST API is served under the prefix <code>/api/v1</code>
+(configurable via <code>API_PREFIX</code>). All REST routes are gated by
+the API-key dependency when authentication is enabled — see <a
+href="authentication.html">authentication.html</a>.</p>
+<p>Interactive Swagger UI is available at <code>/docs</code> and the
+OpenAPI schema at <code>/openapi.json</code>.</p>
+<h2 id="conventions">Conventions</h2>
+<ul>
+<li><strong>Content type</strong>: <code>application/json</code> unless
+noted (file upload uses <code>multipart/form-data</code>).</li>
+<li><strong>Timestamps</strong>: Unix wall-clock seconds (float) via
+<code>time.time()</code>.</li>
+<li><strong>IDs</strong>: persona IDs match
+<code>^[a-z0-9_-]{1,64}$</code>. Agent and session IDs are UUIDs.</li>
+<li><strong>Error shape</strong>:
+<code>{ "detail": "&lt;message&gt;" }</code> for HTTP errors; messages
+are generic and stable (no exception text leaks).</li>
+</ul>
+<h2 id="health">Health</h2>
+<h3 id="get-health"><code>GET /health</code></h3>
+<p>Public. Returns effective runtime posture so operators can verify
+config without authenticating.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;status&quot;</span><span class="fu">:</span> <span class="st">&quot;ok&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;api_version&quot;</span><span class="fu">:</span> <span class="st">&quot;0.2.0&quot;</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;protocol&quot;</span><span class="fu">:</span> <span class="st">&quot;a2a&quot;</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;default_model&quot;</span><span class="fu">:</span> <span class="st">&quot;gpt-4o-mini&quot;</span><span class="fu">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;mcp_tools&quot;</span><span class="fu">:</span> <span class="dv">1</span><span class="fu">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;auth&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span> <span class="dt">&quot;configured&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span> <span class="dt">&quot;header&quot;</span><span class="fu">:</span> <span class="st">&quot;X-API-Key&quot;</span> <span class="fu">},</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;cors&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span> <span class="dt">&quot;wildcard_origin&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span> <span class="dt">&quot;credentials&quot;</span><span class="fu">:</span> <span class="kw">false</span> <span class="fu">}</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h2 id="personas">Personas</h2>
+<h3 id="get-apiv1personas"><code>GET /api/v1/personas</code></h3>
+<p>List all loaded personas.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;personas&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span> <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;trump&quot;</span><span class="fu">,</span> <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;Donald Trump&quot;</span><span class="fu">,</span> <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;45th President of the United States…&quot;</span> <span class="fu">}</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h3
+id="get-apiv1personaspersona_id"><code>GET /api/v1/personas/{persona_id}</code></h3>
+<p>Get full persona details (background, language style, knowledge
+domains, interaction samples).</p>
+<ul>
+<li><code>404</code> if not found.</li>
+</ul>
+<h3 id="post-apiv1personas"><code>POST /api/v1/personas</code></h3>
+<p>Create a new persona. Returns <code>201</code>.</p>
+<p><strong>Request:</strong></p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;Albert Einstein&quot;</span><span class="fu">,</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;Theoretical physicist…&quot;</span><span class="fu">,</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;personal_background&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;birth&quot;</span><span class="fu">:</span> <span class="st">&quot;1879-03-14&quot;</span><span class="fu">,</span> <span class="dt">&quot;profession&quot;</span><span class="fu">:</span> <span class="st">&quot;Physicist&quot;</span> <span class="fu">},</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;language_style&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;tone&quot;</span><span class="fu">:</span> <span class="st">&quot;Thoughtful&quot;</span> <span class="fu">},</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;knowledge_domains&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;physics&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;relativity&quot;</span><span class="ot">]</span> <span class="fu">},</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;interaction_samples&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span> <span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;quote&quot;</span><span class="fu">,</span> <span class="dt">&quot;content&quot;</span><span class="fu">:</span> <span class="st">&quot;Imagination is more important than knowledge.&quot;</span> <span class="fu">}</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;system_prompt&quot;</span><span class="fu">:</span> <span class="kw">null</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<ul>
+<li><code>id</code> is auto-generated as a UUID when omitted.</li>
+<li>The persona is persisted as a JSON file under
+<code>PERSONAS_DIR</code>.</li>
+<li><code>500</code> if the file cannot be written.</li>
+</ul>
+<h3
+id="put-apiv1personaspersona_id"><code>PUT /api/v1/personas/{persona_id}</code></h3>
+<p>Partial update; any field omitted from the body is preserved. Returns
+the updated persona.</p>
+<ul>
+<li><code>404</code> if not found.</li>
+</ul>
+<h3
+id="delete-apiv1personaspersona_id"><code>DELETE /api/v1/personas/{persona_id}</code></h3>
+<p>Delete the persona and any persona files inside
+<code>PERSONAS_DIR</code>. Files outside the directory (e.g. via
+symlink) are skipped defensively.</p>
+<ul>
+<li><code>404</code> if not found. <code>500</code> if persisted files
+cannot be removed.</li>
+</ul>
+<h3
+id="post-apiv1personasupload"><code>POST /api/v1/personas/upload</code></h3>
+<p>Upload a <code>.json</code>, <code>.yaml</code>, or <code>.yml</code>
+file via <code>multipart/form-data</code>. Returns <code>201</code> with
+the created persona.</p>
+<ul>
+<li><code>400</code> for missing filename, wrong extension, or invalid
+JSON/YAML.</li>
+<li><code>500</code> if save fails.</li>
+</ul>
+<h2 id="agents">Agents</h2>
+<p>An agent binds a persona to an executor that manages chat with the
+LLM and MCP tools.</p>
+<h3 id="get-apiv1agents"><code>GET /api/v1/agents</code></h3>
+<p>List all active agents.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;agents&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span> <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;persona_id&quot;</span><span class="fu">:</span> <span class="st">&quot;trump&quot;</span><span class="fu">,</span> <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;Donald Trump&quot;</span><span class="fu">,</span> <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="fl">1715846400.0</span> <span class="fu">}</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h3
+id="get-apiv1agentsagent_id"><code>GET /api/v1/agents/{agent_id}</code></h3>
+<p>Get a single agent. <code>404</code> if not found.</p>
+<h3 id="post-apiv1agents"><code>POST /api/v1/agents</code></h3>
+<p>Create an agent for a persona. Returns <code>201</code>.</p>
+<p><strong>Request:</strong></p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span> <span class="dt">&quot;persona_id&quot;</span><span class="fu">:</span> <span class="st">&quot;trump&quot;</span><span class="fu">,</span> <span class="dt">&quot;model&quot;</span><span class="fu">:</span> <span class="kw">null</span> <span class="fu">}</span></span></code></pre></div>
+<ul>
+<li><code>model</code> is reserved for future multi-model support;
+current builds use the LLM configured in
+<code>llm_config.json</code>.</li>
+<li><code>404</code> if the persona does not exist; <code>500</code> if
+agent creation fails.</li>
+</ul>
+<h3
+id="delete-apiv1agentsagent_id"><code>DELETE /api/v1/agents/{agent_id}</code></h3>
+<p>Delete an agent and any sessions bound to it. <code>404</code> if not
+found.</p>
+<h2 id="sessions">Sessions</h2>
+<p>A session is a conversation with a single agent; messages are
+buffered in the executor’s per-context history.</p>
+<h3 id="get-apiv1sessions"><code>GET /api/v1/sessions</code></h3>
+<p>List all active sessions with metadata.</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;sessions&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;agent_id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;persona_id&quot;</span><span class="fu">:</span> <span class="st">&quot;trump&quot;</span><span class="fu">,</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;message_count&quot;</span><span class="fu">:</span> <span class="dv">4</span><span class="fu">,</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="fl">1715846400.0</span><span class="fu">,</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;last_active&quot;</span><span class="fu">:</span> <span class="fl">1715846412.7</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h3
+id="get-apiv1sessionssession_id"><code>GET /api/v1/sessions/{session_id}</code></h3>
+<p>Get session metadata. <code>404</code> if not found.</p>
+<h3 id="post-apiv1sessions"><code>POST /api/v1/sessions</code></h3>
+<p>Create a new session bound to an existing agent. Returns
+<code>201</code>.</p>
+<p><strong>Request:</strong></p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span> <span class="dt">&quot;agent_id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span> <span class="fu">}</span></span></code></pre></div>
+<ul>
+<li><code>404</code> if the agent does not exist; <code>500</code> on
+internal failure.</li>
+</ul>
+<h3
+id="delete-apiv1sessionssession_id"><code>DELETE /api/v1/sessions/{session_id}</code></h3>
+<p>Delete the session and clear its executor history.</p>
+<h3
+id="get-apiv1sessionssession_idmessages"><code>GET /api/v1/sessions/{session_id}/messages</code></h3>
+<p>Return the full message history for the session.</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;session_id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;messages&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span> <span class="dt">&quot;role&quot;</span><span class="fu">:</span> <span class="st">&quot;user&quot;</span><span class="fu">,</span> <span class="dt">&quot;content&quot;</span><span class="fu">:</span> <span class="st">&quot;Hi&quot;</span><span class="fu">,</span> <span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span> <span class="fl">1715846400.0</span> <span class="fu">}</span><span class="ot">,</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span> <span class="dt">&quot;role&quot;</span><span class="fu">:</span> <span class="st">&quot;assistant&quot;</span><span class="fu">,</span> <span class="dt">&quot;content&quot;</span><span class="fu">:</span> <span class="st">&quot;Hello!&quot;</span><span class="fu">,</span> <span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span> <span class="fl">1715846401.4</span> <span class="fu">}</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>Older history entries written before timestamp tracking surface
+<code>timestamp: 0.0</code>.</p>
+<h3
+id="post-apiv1sessionssession_idmessages"><code>POST /api/v1/sessions/{session_id}/messages</code></h3>
+<p>Send a message and wait for the agent’s response.</p>
+<p><strong>Request:</strong></p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span> <span class="dt">&quot;message&quot;</span><span class="fu">:</span> <span class="st">&quot;What&#39;s your view on trade policy?&quot;</span> <span class="fu">}</span></span></code></pre></div>
+<p><strong>Response:</strong></p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;session_id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;success&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;response&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;assistant reply&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;error_details&quot;</span><span class="fu">:</span> <span class="kw">null</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<ul>
+<li>The user message is appended to executor history
+<strong>before</strong> the LLM call, so it remains in history even when
+the call fails; <code>GET /sessions/{id}/messages</code> will show the
+failed turn.</li>
+<li><code>last_active</code> is updated only on success.</li>
+<li>On internal errors the response contains <code>success: false</code>
+and a generic message; details are logged server-side, never returned to
+the caller. Clients retrying a failed <code>POST /messages</code> should
+expect the previous user message to already be in the conversation.</li>
+</ul>
+<h2 id="a2a-discovery">A2A discovery</h2>
+<p>The A2A protocol surfaces are documented in <a
+href="a2a-protocol.html">a2a-protocol.html</a>. They are public (no API-key
+gate) by protocol design.</p>
+<h2 id="status-codes">Status codes</h2>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>200</code></td>
+<td>Success.</td>
+</tr>
+<tr class="even">
+<td><code>201</code></td>
+<td>Resource created (<code>POST /personas</code>, <code>/agents</code>,
+<code>/sessions</code>, <code>/personas/upload</code>).</td>
+</tr>
+<tr class="odd">
+<td><code>400</code></td>
+<td>Malformed input (bad upload filename or content).</td>
+</tr>
+<tr class="even">
+<td><code>401</code></td>
+<td>Auth enabled and header missing or invalid.</td>
+</tr>
+<tr class="odd">
+<td><code>404</code></td>
+<td>Resource not found.</td>
+</tr>
+<tr class="even">
+<td><code>422</code></td>
+<td>Request body fails Pydantic / FastAPI validation (e.g. wrong type,
+missing required field).</td>
+</tr>
+<tr class="odd">
+<td><code>500</code></td>
+<td>Internal failure (file write, agent creation, persona save).</td>
+</tr>
+<tr class="even">
+<td><code>503</code></td>
+<td>Auth enabled but the allow-list is empty (misconfiguration).</td>
+</tr>
+</tbody>
+</table>
+<p>Most non-2xx responses use the
+<code>{ "detail": "&lt;message&gt;" }</code> shape and never contain
+exception text or stack traces. The exception is <code>422</code>, where
+FastAPI populates <code>detail</code> with a <strong>list of per-field
+validation error objects</strong>:</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;detail&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;loc&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;body&quot;</span><span class="ot">,</span> <span class="st">&quot;agent_id&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;msg&quot;</span><span class="fu">:</span> <span class="st">&quot;Field required&quot;</span><span class="fu">,</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;missing&quot;</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>Clients should handle <code>422</code> separately from the
+string-<code>detail</code> shape. See <a
+href="https://fastapi.tiangolo.com/tutorial/handling-errors/#requestvalidationerror">FastAPI’s
+validation error format</a> for the full schema.</p>
+</main>
+</body>
+</html>

@@ -1,7 +1,7 @@
-"""Agent factory for creating and managing A2A persona agents.
+"""In-memory factory for persona agents and REST chat sessions.
 
-This module provides a factory class for creating and managing AI agents
-powered by the A2A protocol with direct LLM and MCP tool integration.
+The factory owns runtime agent/session metadata while conversation history
+remains on ``PersonaAgentExecutor`` so REST and A2A paths share behavior.
 """
 
 import json
@@ -66,12 +66,7 @@ class AgentSession:
 
 
 class AgentFactory:
-    """Factory for creating and managing A2A persona agents.
-
-    This class provides methods for creating, retrieving, and managing
-    agents and sessions using PersonaAgentExecutor with direct LLM
-    and MCP tool integration.
-    """
+    """Create and track persona executors and their REST sessions."""
 
     def __init__(
         self,
@@ -83,17 +78,17 @@ class AgentFactory:
         self.agents: dict[str, dict[str, Any]] = {}
         self.sessions: dict[str, AgentSession] = {}
 
-        # LLM client — injected or created from config
         self._llm_client = llm_client or self._create_llm_client()
 
-        # MCP manager — injected or None (lazy init)
+        # An injected manager may already be initialized by ``server.lifespan``;
+        # otherwise the factory lazily loads the config next to llm_config.json.
         self._mcp_manager = mcp_manager
         self._mcp_initialized = bool(
             self._mcp_manager is not None and self._mcp_manager.is_initialized
         )
 
     def _create_llm_client(self) -> LLMClient:
-        """Create LLM client from configuration file."""
+        """Create the default LLM client from the configured JSON file."""
         llm_configs: dict[str, Any] = {}
 
         if self.llm_config_path and os.path.exists(self.llm_config_path):
@@ -104,7 +99,7 @@ class AgentFactory:
         return OpenAICompatibleClient.from_config(llm_configs)
 
     async def _ensure_mcp(self) -> DirectMCPManager | None:
-        """Ensure MCP manager is initialized."""
+        """Return an initialized MCP manager when a local config exists."""
         if self._mcp_initialized:
             return self._mcp_manager
 
@@ -140,18 +135,16 @@ class AgentFactory:
 
         Args:
             persona: The persona to create an agent for.
-            model: Optional model name override (not used in current impl,
-                   reserved for future multi-model support).
+            model: Optional model name override accepted for API compatibility.
+                The current implementation keeps one shared client per factory.
 
         Returns:
             The ID of the created agent.
         """
         agent_id = str(uuid.uuid4())
 
-        # Ensure MCP is initialized
         mcp = await self._ensure_mcp()
 
-        # Create the executor
         executor = PersonaAgentExecutor(
             persona_id=persona.id,
             persona_name=persona.name,
@@ -239,7 +232,6 @@ class AgentFactory:
         """Delete a session by ID."""
         if session_id not in self.sessions:
             return False
-        # Clear executor history for this session's context
         session = self.sessions[session_id]
         session.executor.clear_history(session.id)
         del self.sessions[session_id]
