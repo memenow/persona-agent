@@ -9,9 +9,17 @@ The server reads configuration from three places, in order of precedence
    and tunables, `config/mcp_config.json` for MCP servers.
 3. **Hardcoded defaults** in `src/persona_agent/api/config.py`.
 
-For LLM credentials the file format also has its own cascade: env wins,
-then the `model_configs[*]` entry whose `name`/`model` matches
-`default_model`, then the file-level `api_key`/`api_base`.
+**LLM credentials are an exception** to the env-wins rule above, and
+`api_key` and `api_base` follow different cascades:
+
+- **`api_key` is file-first**: the `model_configs[*]` entry whose
+  `name`/`model` matches `default_model` is checked first, then the
+  file-level `api_key`. `OPENAI_API_KEY` only kicks in when both file
+  values are empty. To rotate the active key with an environment
+  variable, leave the file's `api_key` empty for the active model.
+- **`api_base` is env-first**: `OPENAI_BASE_URL` (or `OPENAI_API_BASE`)
+  wins when set; otherwise the per-model `api_base` is used, then the
+  file-level `api_base`.
 
 ## Environment variables
 

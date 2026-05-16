@@ -27,6 +27,18 @@ our executor.
 > gates the REST CRUD surface under `/api/v1` (see
 > [authentication.md](authentication.md)).
 
+> **The A2A registry is built once at startup.** `create_app()` constructs
+> `A2ARegistry` inside its lifespan handler from the personas present
+> when the server boots and mounts one sub-app per persona; the registry
+> is not resynchronized afterwards. Personas created, updated, uploaded,
+> or deleted via the REST API mutate `PersonaManager` and the persona
+> files on disk, but the aggregate `/.well-known/agent.json`,
+> `/a2a/personas`, and per-persona `/a2a/{persona_id}/...` routes keep
+> serving the boot-time set until the process is restarted. Plan REST
+> persona changes alongside a restart when those changes need to be
+> reachable over A2A, or restrict REST mutation flows to internal
+> tooling.
+
 ## AgentCard
 
 The card is generated from the persona's `name`, `description`, and

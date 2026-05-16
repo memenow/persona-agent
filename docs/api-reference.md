@@ -248,8 +248,27 @@ protocol design.
 | `400` | Malformed input (bad upload filename or content). |
 | `401` | Auth enabled and header missing or invalid. |
 | `404` | Resource not found. |
+| `422` | Request body fails Pydantic / FastAPI validation (e.g. wrong type, missing required field). |
 | `500` | Internal failure (file write, agent creation, persona save). |
 | `503` | Auth enabled but the allow-list is empty (misconfiguration). |
 
-All non-2xx responses use the `{ "detail": "<message>" }` shape and never
-contain exception text or stack traces.
+Most non-2xx responses use the `{ "detail": "<message>" }` shape and
+never contain exception text or stack traces. The exception is `422`,
+where FastAPI populates `detail` with a **list of per-field validation
+error objects**:
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "agent_id"],
+      "msg": "Field required",
+      "type": "missing"
+    }
+  ]
+}
+```
+
+Clients should handle `422` separately from the string-`detail` shape.
+See [FastAPI's validation error format](https://fastapi.tiangolo.com/tutorial/handling-errors/#requestvalidationerror)
+for the full schema.
