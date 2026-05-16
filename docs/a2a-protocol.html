@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>A2A Protocol Integration</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="a2a-protocol-integration">A2A Protocol Integration</h1>
+<p>The project exposes every persona as an independent <a
+href="https://github.com/google/A2A">Google A2A protocol</a> agent. The
+integration is built directly on <code>a2a-sdk</code> — there is no
+framework wrapper between the SDK and our executor.</p>
+<h2 id="components">Components</h2>
+<table>
+<colgroup>
+<col style="width: 57%" />
+<col style="width: 42%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Module</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>persona_agent.a2a.executor.PersonaAgentExecutor</code></td>
+<td>Implements <code>a2a.server.agent_execution.AgentExecutor</code>;
+runs the LLM chat loop with MCP tool calls and emits A2A task status
+updates.</td>
+</tr>
+<tr class="even">
+<td><code>persona_agent.a2a.agent_card.build_agent_card()</code></td>
+<td>Builds an <code>AgentCard</code> (skills, capabilities, URL) from a
+persona definition.</td>
+</tr>
+<tr class="odd">
+<td><code>persona_agent.api.routes.a2a.A2ARegistry</code></td>
+<td>Owns the per-persona <code>A2AFastAPIApplication</code>, calls its
+<code>.build()</code> method to obtain an ASGI sub-app, and mounts it
+onto the parent FastAPI app.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="endpoints">Endpoints</h2>
+<table>
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 28%" />
+<col style="width: 21%" />
+<col style="width: 28%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Path</th>
+<th>Method</th>
+<th>Auth</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>/.well-known/agent.json</code></td>
+<td><code>GET</code></td>
+<td>public</td>
+<td><code>A2ARegistry.build_aggregate_card()</code> — aggregate card
+listing every persona.</td>
+</tr>
+<tr class="even">
+<td><code>/a2a/personas</code></td>
+<td><code>GET</code></td>
+<td>public</td>
+<td><code>A2ARegistry.list_personas()</code> — JSON list of registered
+persona agents.</td>
+</tr>
+<tr class="odd">
+<td><code>/a2a/{persona_id}/.well-known/agent-card.json</code></td>
+<td><code>GET</code></td>
+<td>public</td>
+<td>Provided by the SDK sub-app.</td>
+</tr>
+<tr class="even">
+<td><code>/a2a/{persona_id}/</code></td>
+<td><code>POST</code></td>
+<td>public</td>
+<td>JSON-RPC endpoint provided by the SDK sub-app; this is where A2A
+clients send messages and task control RPCs.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>A2A surfaces are public by protocol design: external agents must be
+able to discover the hub without holding an API key. Authentication only
+gates the REST CRUD surface under <code>/api/v1</code> (see <a
+href="authentication.html">authentication.html</a>).</p>
+</blockquote>
+<blockquote>
+<p><strong>The A2A registry is built once at startup.</strong>
+<code>create_app()</code> constructs <code>A2ARegistry</code> inside its
+lifespan handler from the personas present when the server boots and
+mounts one sub-app per persona; the registry is not resynchronized
+afterwards. Personas created, updated, uploaded, or deleted via the REST
+API mutate <code>PersonaManager</code> and the persona files on disk,
+but the aggregate <code>/.well-known/agent.json</code>,
+<code>/a2a/personas</code>, and per-persona
+<code>/a2a/{persona_id}/...</code> routes keep serving the boot-time set
+until the process is restarted. Plan REST persona changes alongside a
+restart when those changes need to be reachable over A2A, or restrict
+REST mutation flows to internal tooling.</p>
+</blockquote>
+<h2 id="agentcard">AgentCard</h2>
+<p>The card is generated from the persona’s <code>name</code>,
+<code>description</code>, and <code>knowledge_domains</code>. It
+declares:</p>
+<ul>
+<li><strong><code>url</code></strong> —
+<code>f"{base_url}/a2a/{persona_id}/"</code> where <code>base_url</code>
+is taken from <code>API_PUBLIC_BASE_URL</code> if set, otherwise built
+from <code>API_HOST</code>/<code>API_PORT</code>.</li>
+<li><strong><code>capabilities</code></strong> —
+<code>streaming=True</code>, <code>state_transition_history=True</code>,
+<code>push_notifications=False</code>.</li>
+<li><strong><code>default_input_modes</code> /
+<code>default_output_modes</code></strong> —
+<code>["text/plain"]</code>.</li>
+<li><strong><code>skills</code></strong> — one general “conversation”
+skill plus one skill per knowledge domain in the persona file:</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;trump-politics&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;Donald Trump on Politics&quot;</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;Ask Donald Trump about Politics: American politics, Immigration policy, Trade policy, …&quot;</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;tags&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;politics&quot;</span><span class="ot">,</span> <span class="st">&quot;trump&quot;</span><span class="ot">,</span> <span class="st">&quot;expertise&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;examples&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;What&#39;s your view on American politics?&quot;</span><span class="ot">]</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>You can inspect the generated card without starting the server:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent agent-card               <span class="co"># all personas</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent agent-card trump         <span class="co"># a specific persona</span></span></code></pre></div>
+<h2 id="mount-strategy">Mount strategy</h2>
+<p>For each persona the registry constructs:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>A2AFastAPIApplication(agent_card<span class="op">=</span>card, http_handler<span class="op">=</span>request_handler)</span></code></pre></div>
+<p>It then calls <code>.build()</code> and mounts the returned ASGI app
+at <code>/a2a/{persona_id}</code>. Because each persona owns an isolated
+sub-app, the SDK’s default routes (<code>/</code>,
+<code>/.well-known/agent-card.json</code>) are namespaced to that path
+prefix automatically.</p>
+<p>The request handler is the SDK’s <code>DefaultRequestHandler</code>,
+wired to:</p>
+<ul>
+<li><code>agent_executor</code> — our
+<code>PersonaAgentExecutor</code>.</li>
+<li><code>task_store</code> — <code>InMemoryTaskStore</code>
+(per-process; tasks are not durable across restarts).</li>
+<li><code>queue_manager</code> — <code>InMemoryQueueManager</code> for
+streaming events.</li>
+</ul>
+<h2 id="executor-behavior">Executor behavior</h2>
+<p><code>PersonaAgentExecutor.execute()</code> is the entry point
+invoked by the SDK when an A2A task arrives.</p>
+<ol type="1">
+<li>Reads the user message via
+<code>context.get_user_input()</code>.</li>
+<li>Emits a <code>working</code> status update.</li>
+<li>Calls <code>chat(context_id, user_text)</code> — the shared chat
+method also used by the REST <code>send_message</code> path.</li>
+<li>Emits a <code>completed</code> status update with the assistant
+message, or a <code>failed</code> status update with a generic error
+message if the chat raises.</li>
+</ol>
+<p><code>chat()</code> serializes concurrent calls sharing the same
+<code>context_id</code> via an <code>asyncio.Lock</code>, so two clients
+on the same conversation cannot interleave history writes. History is
+stored as an <code>OrderedDict</code> LRU capped at 200 contexts; the
+oldest entry is evicted (along with its lock) when the cap is
+exceeded.</p>
+<p>Tool calls are iterated up to <code>MAX_TOOL_ITERATIONS = 10</code>.
+When the cap is hit, the executor forces a final completion with
+<code>tool_choice="none"</code> so the model produces a textual answer
+without invoking another tool. If no MCP tools are loaded, the loop
+short-circuits to a plain completion.</p>
+<h2 id="cancellation">Cancellation</h2>
+<p><code>PersonaAgentExecutor.cancel()</code> emits a
+<code>canceled</code> task status. The underlying LLM/MCP work is not
+preempted (the OpenAI SDK does not expose cooperative cancellation
+here); the cancel signal is best-effort.</p>
+</main>
+</body>
+</html>

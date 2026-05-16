@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Development</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="development">Development</h1>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>Python 3.11 or newer.</li>
+<li><a href="https://docs.astral.sh/uv/"><code>uv</code></a> for
+dependency and venv management.</li>
+</ul>
+<h2 id="setup">Setup</h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/memenow/persona-agent.git</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> persona-agent</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> sync</span></code></pre></div>
+<p><code>uv sync</code> creates <code>.venv/</code>, installs runtime
+and dev dependencies from
+<code>pyproject.toml</code>/<code>uv.lock</code>, and exposes the
+<code>persona-agent</code> script.</p>
+<h2 id="project-layout">Project layout</h2>
+<pre><code>persona-agent/
+├── config/                          Configuration files
+│   ├── llm_config.json              LLM API keys and tunables
+│   └── mcp_config.json              MCP stdio server definitions
+├── docs/                            Detailed documentation (this directory)
+├── examples/
+│   └── personas/                    Example persona definitions
+├── src/persona_agent/
+│   ├── a2a/
+│   │   ├── agent_card.py            A2A AgentCard builder
+│   │   └── executor.py              PersonaAgentExecutor (A2A AgentExecutor impl)
+│   ├── api/
+│   │   ├── agent_factory.py         AgentFactory + AgentSession
+│   │   ├── auth.py                  API key dependency
+│   │   ├── config.py                ApiConfig + load_config()
+│   │   ├── dependencies.py          FastAPI dependency providers
+│   │   ├── models.py                Pydantic request/response models
+│   │   ├── persona_manager.py       Persona model + filesystem I/O
+│   │   ├── routes/                  REST and A2A discovery routes
+│   │   └── server.py                FastAPI app factory + lifespan
+│   ├── llm/
+│   │   └── client.py                LLMClient ABC + OpenAICompatibleClient
+│   ├── mcp/
+│   │   └── direct_mcp.py            DirectMCPManager (stdio lifecycle)
+│   └── cli.py                       Command-line interface
+├── tests/                           Test suite (pytest, pytest-asyncio)
+├── pyproject.toml                   Project metadata, deps, tool config
+└── uv.lock                          Resolved dependency lock</code></pre>
+<h2 id="common-commands">Common commands</h2>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the API server</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent api</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Inspect personas / agent cards without starting the server</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent list-personas</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent agent-card               <span class="co"># all personas</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent agent-card trump         <span class="co"># specific persona</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Import a persona file</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent import-persona path/to/persona.yaml</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Lint and format</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run ruff check .</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run ruff format .</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Run tests</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run pytest</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run pytest tests/test_executor.py <span class="at">-q</span>       <span class="co"># focused</span></span></code></pre></div>
+<h2 id="linting">Linting</h2>
+<p>Ruff is the only linter and formatter:</p>
+<ul>
+<li><code>target-version = "py311"</code></li>
+<li><code>line-length = 88</code></li>
+<li><code>select = ["E", "F", "W", "I", "UP", "B", "SIM"]</code></li>
+<li><code>ignore = ["E501", "B008"]</code> — long lines are tolerated;
+<code>B008</code> (function calls in default args) is allowed because
+FastAPI’s <code>Depends(...)</code> idiom relies on it.</li>
+</ul>
+<p>Run <code>uv run ruff format .</code> before opening a pull request.
+CI is not mandated by the project today, but ruff’s defaults are good
+enough that running it locally keeps diffs clean.</p>
+<h2 id="tests">Tests</h2>
+<p><code>pytest-asyncio</code> is configured in
+<code>asyncio_mode = "auto"</code> so async tests do not need an
+explicit decorator. Tests live under <code>tests/</code>; group related
+cases per file (<code>test_auth.py</code>,
+<code>test_executor.py</code>, <code>test_persona_id_security.py</code>,
+etc.).</p>
+<p>Key test conventions:</p>
+<ul>
+<li>Build a real <code>Persona</code> and
+<code>PersonaAgentExecutor</code> rather than mocking them — the
+executor is small and the integration is the interesting surface.</li>
+<li>For LLM calls, stub <code>OpenAICompatibleClient</code> with a fake
+that returns a deterministic <code>ChatResponse</code> rather than
+hitting an external API.</li>
+<li>For MCP, point <code>DirectMCPManager.load_config</code> at a small
+JSON in a <code>tmp_path</code> fixture and use a no-op stdio server, or
+skip when the upstream binary is unavailable.</li>
+</ul>
+<h2 id="git-workflow">Git workflow</h2>
+<p>The repository follows a fork-based workflow:</p>
+<ul>
+<li><code>origin</code> is your fork
+(e.g. <code>github.com/&lt;you&gt;/persona-agent</code>).</li>
+<li><code>upstream</code> is
+<code>github.com/memenow/persona-agent</code>.</li>
+</ul>
+<p>Open pull requests against <code>upstream/main</code>. Keep commit
+messages factual and in English; do not include AI-attribution
+lines.</p>
+<h2 id="adding-documentation">Adding documentation</h2>
+<p>This directory is the canonical place for in-depth documentation.
+When you change behavior that’s documented here, update the matching
+file in the same change. The top-level <code>README.md</code> should
+stay short — link from it into <code>docs/</code> rather than expanding
+the README.</p>
+</main>
+</body>
+</html>

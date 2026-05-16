@@ -1,7 +1,7 @@
-"""Configuration settings for the API service.
+"""Configuration model and environment variable names for the API service.
 
-This module provides configuration management for the Persona Agent API service,
-including settings for server, authentication, CORS, and model configurations.
+``load_config`` applies the documented precedence rules while keeping the
+result in the ``ApiConfig`` shape consumed by the server and dependencies.
 """
 
 import json
@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# Constants for environment variable names, avoiding hardcoding
+# Keep environment variable names centralized so docs and tests can refer to
+# the same identifiers as the loader.
 ENV_API_HOST = "API_HOST"
 ENV_API_PORT = "API_PORT"
 ENV_API_DEBUG = "API_DEBUG"

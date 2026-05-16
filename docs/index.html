@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Documentation</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="documentation">Documentation</h1>
+<p>In-depth documentation for the Persona Agent project. The top-level
+<a href="../README.md"><code>README.md</code></a> is the quick-start
+entry point; this directory documents the details that don’t fit
+there.</p>
+<h2 id="contents">Contents</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 66%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>File</th>
+<th>Use it for</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><a href="api-reference.html">api-reference.html</a></td>
+<td>REST API endpoints, request/response shapes, status codes.</td>
+</tr>
+<tr class="even">
+<td><a href="a2a-protocol.html">a2a-protocol.html</a></td>
+<td>Google A2A protocol integration, agent cards, JSON-RPC endpoints,
+mount strategy.</td>
+</tr>
+<tr class="odd">
+<td><a href="persona-schema.html">persona-schema.html</a></td>
+<td>Persona definition format, field semantics, ID rules, examples.</td>
+</tr>
+<tr class="even">
+<td><a href="configuration.html">configuration.html</a></td>
+<td>Environment variables, <code>llm_config.json</code>,
+<code>mcp_config.json</code>, precedence.</td>
+</tr>
+<tr class="odd">
+<td><a href="mcp-integration.html">mcp-integration.html</a></td>
+<td>MCP tool integration, stdio lifecycle, env-var substitution,
+retries.</td>
+</tr>
+<tr class="even">
+<td><a href="authentication.html">authentication.html</a></td>
+<td>API key auth, allow-list, CORS interaction, public vs protected
+routes.</td>
+</tr>
+<tr class="odd">
+<td><a href="deployment.html">deployment.html</a></td>
+<td>Running the server, reverse proxies, logging, process model.</td>
+</tr>
+<tr class="even">
+<td><a href="development.html">development.html</a></td>
+<td>Development setup, lint, format, test workflows.</td>
+</tr>
+<tr class="odd">
+<td><a href="changelog.html">changelog.html</a></td>
+<td>Notable changes since the AutoGen → A2A migration.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="conventions">Conventions</h2>
+<ul>
+<li>Examples assume the server is reachable at
+<code>http://127.0.0.1:8000</code> (the default bind). Adjust the
+host/port for your environment.</li>
+<li>JSON bodies are shown as pretty-printed. The server accepts compact
+JSON as well.</li>
+<li>Environment variables follow the prefix <code>API_*</code> for
+server runtime, <code>OPENAI_*</code> for LLM client,
+<code>PERSONAS_DIR</code>/<code>LLM_CONFIG_PATH</code>/<code>MCP_CONFIG_PATH</code>
+for file locations.</li>
+</ul>
+</main>
+</body>
+</html>

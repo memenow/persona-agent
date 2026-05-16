@@ -1,7 +1,7 @@
-"""Main API server module.
+"""FastAPI application assembly for REST and A2A surfaces.
 
-Provides the FastAPI server with A2A protocol support, REST API,
-and MCP tool integration managed via lifespan events.
+The app factory wires shared configuration, LLM, MCP, persona storage,
+REST routers, A2A sub-apps, and non-revealing exception handlers.
 """
 
 import asyncio
@@ -54,11 +54,10 @@ def _resolve_public_base_url(config: ApiConfig) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage MCP service lifecycle and A2A registry setup."""
+    """Initialize MCP services and mount persona A2A sub-apps."""
     config: ApiConfig = app.state.config
     mcp_manager: DirectMCPManager = app.state.mcp_manager
 
-    # Initialize MCP services
     import os
 
     mcp_config_path = config.mcp_config_path or os.path.join(
@@ -70,7 +69,8 @@ async def lifespan(app: FastAPI):
             "MCP services initialized: %d tools", len(mcp_manager.get_all_tools())
         )
 
-    # Set up A2A registry with all loaded personas
+    # Build the registry after MCP initialization so every executor receives
+    # the same shared tool manager instance.
     persona_manager: PersonaManager = app.state.persona_manager
     llm_client = app.state.llm_client
     registry = A2ARegistry(base_url=_resolve_public_base_url(config))
@@ -88,7 +88,6 @@ async def lifespan(app: FastAPI):
             registry.register_persona(p, executor)
 
     set_registry(registry)
-    # Mount each persona's A2A sub-app using the SDK's public build() API
     registry.mount_all(app)
     logger.info(
         "A2A registry initialized with %d personas", len(registry.list_personas())
@@ -96,13 +95,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Cleanup
     await mcp_manager.close()
     logger.info("MCP services closed")
 
 
 async def create_app(config: ApiConfig | None = None) -> FastAPI:
-    """Create and configure the FastAPI application."""
+    """Create a fully wired FastAPI application instance."""
     if config is None:
         config = load_config()
 
@@ -113,7 +111,8 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Store shared objects in app state
+    # Shared runtime objects live in app state and are exposed to routes via
+    # dependency overrides below.
     app.state.config = config
 
     llm_client = OpenAICompatibleClient.from_config(
@@ -133,7 +132,6 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
         mcp_manager=mcp_manager,
     )
 
-    # CORS
     cors_wildcard_origin = any(origin == "*" for origin in config.allowed_origins)
     cors_credentials = config.enable_cors and not cors_wildcard_origin
     if config.enable_cors:
@@ -149,7 +147,6 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
-    # Dependency overrides
     app.dependency_overrides[get_config] = lambda: config
     app.dependency_overrides[get_persona_manager] = lambda: persona_manager
     app.dependency_overrides[get_agent_factory] = lambda: agent_factory
@@ -159,7 +156,8 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
     # header requires an app restart.
     verify_api_key = make_api_key_dependency(config)
 
-    # REST API routes (protected by API key when enable_auth is True)
+    # REST routers share the same API-key dependency so auth behavior stays
+    # consistent across persona, agent, and session resources.
     app.include_router(
         persona.router,
         prefix=config.api_prefix,
@@ -219,7 +217,6 @@ async def create_app(config: ApiConfig | None = None) -> FastAPI:
         cors_wildcard_origin,
     )
 
-    # Exception handlers
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})

@@ -36,7 +36,7 @@ The server binds to `http://127.0.0.1:8000` by default. Swagger UI is at
 REST surface under `/api/v1`.
 
 Set your LLM credentials in `config/llm_config.json` (see
-[docs/configuration.md](docs/configuration.md)):
+[docs/configuration.html](docs/configuration.html)):
 
 ```json
 {
@@ -73,7 +73,7 @@ uv run persona-agent import-persona FILE    # import a JSON/YAML persona file
 
 | Surface | Path | Notes |
 |---------|------|-------|
-| REST | `/api/v1/personas`, `/agents`, `/sessions` | CRUD; details in [docs/api-reference.md](docs/api-reference.md). |
+| REST | `/api/v1/personas`, `/agents`, `/sessions` | CRUD; details in [docs/api-reference.html](docs/api-reference.html). |
 | REST | `POST /api/v1/personas/upload` | Upload a YAML/JSON persona file. |
 | REST | `GET /api/v1/sessions/{id}/messages`, `POST .../messages` | Read history; send a message and get a reply. |
 | A2A | `GET /.well-known/agent.json` | Aggregate card for every persona. |
@@ -85,7 +85,7 @@ uv run persona-agent import-persona FILE    # import a JSON/YAML persona file
 
 REST routes are protected by an opt-in API-key dependency (off by
 default). A2A surfaces are public by protocol design. See
-[docs/authentication.md](docs/authentication.md).
+[docs/authentication.html](docs/authentication.html).
 
 ## Persona example
 
@@ -105,7 +105,7 @@ interaction_samples:
 ```
 
 The persona schema, including ID rules and the system-prompt generator,
-is documented in [docs/persona-schema.md](docs/persona-schema.md).
+is documented in [docs/persona-schema.html](docs/persona-schema.html).
 
 ## Project layout
 
@@ -129,15 +129,16 @@ persona-agent/
 
 | File | What it covers |
 |------|----------------|
-| [docs/api-reference.md](docs/api-reference.md) | REST endpoints with payloads and status codes. |
-| [docs/a2a-protocol.md](docs/a2a-protocol.md) | A2A integration, agent cards, mount strategy, executor behavior. |
-| [docs/persona-schema.md](docs/persona-schema.md) | Persona fields, ID rules, examples, prompt generator. |
-| [docs/configuration.md](docs/configuration.md) | Environment variables, `llm_config.json`, `mcp_config.json`. |
-| [docs/mcp-integration.md](docs/mcp-integration.md) | MCP stdio lifecycle, env-var substitution, tool execution. |
-| [docs/authentication.md](docs/authentication.md) | API keys, CORS, public vs protected routes. |
-| [docs/deployment.md](docs/deployment.md) | Bind, reverse proxy, logging, containerization. |
-| [docs/development.md](docs/development.md) | Setup, lint, format, test, project layout. |
-| [docs/changelog.md](docs/changelog.md) | Notable changes by pull request. |
+| [docs/index.html](docs/index.html) | Documentation index. |
+| [docs/api-reference.html](docs/api-reference.html) | REST endpoints with payloads and status codes. |
+| [docs/a2a-protocol.html](docs/a2a-protocol.html) | A2A integration, agent cards, mount strategy, executor behavior. |
+| [docs/persona-schema.html](docs/persona-schema.html) | Persona fields, ID rules, examples, prompt generator. |
+| [docs/configuration.html](docs/configuration.html) | Environment variables, `llm_config.json`, `mcp_config.json`. |
+| [docs/mcp-integration.html](docs/mcp-integration.html) | MCP stdio lifecycle, env-var substitution, tool execution. |
+| [docs/authentication.html](docs/authentication.html) | API keys, CORS, public vs protected routes. |
+| [docs/deployment.html](docs/deployment.html) | Bind, reverse proxy, logging, containerization. |
+| [docs/development.html](docs/development.html) | Setup, lint, format, test, project layout. |
+| [docs/changelog.html](docs/changelog.html) | Notable changes by pull request. |
 
 ## Development
 
@@ -149,7 +150,7 @@ uv run pytest
 ```
 
 Python 3.11+ required. Full development notes in
-[docs/development.md](docs/development.md).
+[docs/development.html](docs/development.html).
 
 ## License
 

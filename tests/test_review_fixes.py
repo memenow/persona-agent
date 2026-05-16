@@ -19,6 +19,8 @@ from persona_agent.mcp.direct_mcp import DirectMCPManager
 
 
 class CapturingMCPManager(DirectMCPManager):
+    """Test double that records the environment passed to MCP connection."""
+
     def __init__(self) -> None:
         super().__init__()
         self.captured_env: dict[str, str] = {}
@@ -100,7 +102,9 @@ def test_delete_persona_removes_loaded_file(tmp_path) -> None:
     assert PersonaManager(str(tmp_path)).get_persona("alice") is None
 
 
-def test_delete_persona_does_not_remove_file_for_different_declared_id(tmp_path) -> None:
+def test_delete_persona_does_not_remove_file_for_different_declared_id(
+    tmp_path,
+) -> None:
     aliased_file = tmp_path / "alice.yaml"
     aliased_file.write_text(
         "id: bob\nname: Bob\ndescription: Stored in alice.yaml\n",
@@ -122,7 +126,9 @@ def test_delete_persona_does_not_remove_file_for_different_declared_id(tmp_path)
     assert reloaded.get_persona("carol") is not None
 
 
-def test_delete_persona_failure_returns_500_and_keeps_state(tmp_path, monkeypatch) -> None:
+def test_delete_persona_failure_returns_500_and_keeps_state(
+    tmp_path, monkeypatch
+) -> None:
     persona_file = tmp_path / "alice.yaml"
     persona_file.write_text(
         "id: alice\nname: Alice\ndescription: Example persona\n",

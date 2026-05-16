@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Authentication and CORS</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="authentication-and-cors">Authentication and CORS</h1>
+<p>The REST surface under <code>/api/v1</code> is gated by an API-key
+dependency that can be toggled at runtime. The A2A protocol routes are
+public by design.</p>
+<h2 id="api-key-model">API-key model</h2>
+<p>When <code>API_ENABLE_AUTH=true</code>:</p>
+<ol type="1">
+<li>Every REST request must carry a header named
+<code>API_KEY_HEADER</code> (default <code>X-API-Key</code>).</li>
+<li>The header value is compared against each entry of
+<code>API_ALLOWED_KEYS</code> using <code>secrets.compare_digest</code>.
+The loop scans <strong>every</strong> allowed key without
+short-circuiting so a timing side-channel cannot reveal which prefix
+matched.</li>
+<li>A missing header returns
+<code>401 Invalid or missing API key</code>.</li>
+<li>A header that doesn’t match any allowed key also returns
+<code>401</code>.</li>
+<li>When auth is enabled but <code>API_ALLOWED_KEYS</code> is empty, the
+server returns <code>503 Authentication misconfigured</code> for every
+protected request and logs an error. This is intentional — silently
+allowing traffic in this state would be a defect.</li>
+</ol>
+<p>When <code>API_ENABLE_AUTH=false</code> (the default), the dependency
+is a no-op and every REST route is reachable.</p>
+<h2 id="key-allow-list-parsing">Key allow-list parsing</h2>
+<p><code>API_ALLOWED_KEYS</code> is comma-separated. The parser strips
+whitespace around each entry and drops blanks, so the following are
+equivalent and all yield two valid keys:</p>
+<pre><code>API_ALLOWED_KEYS=&quot;abc,def&quot;
+API_ALLOWED_KEYS=&quot;abc, def, &quot;
+API_ALLOWED_KEYS=&quot; abc ,, def&quot;</code></pre>
+<p>A defense-in-depth check inside <code>verify_api_key</code> also
+skips empty entries that somehow slip past the parser.</p>
+<h2 id="whats-protected">What’s protected</h2>
+<table>
+<colgroup>
+<col style="width: 60%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Surface</th>
+<th>Auth</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>GET/POST/PUT/DELETE /api/v1/personas[/...]</code></td>
+<td>required when enabled</td>
+</tr>
+<tr class="even">
+<td><code>GET/POST/DELETE /api/v1/agents[/...]</code></td>
+<td>required when enabled</td>
+</tr>
+<tr class="odd">
+<td><code>GET/POST/DELETE /api/v1/sessions[/...]</code></td>
+<td>required when enabled</td>
+</tr>
+<tr class="even">
+<td><code>GET /a2a/*</code>, <code>POST /a2a/{persona_id}/</code>,
+<code>/.well-known/agent.json</code></td>
+<td>always public</td>
+</tr>
+<tr class="odd">
+<td><code>GET /health</code></td>
+<td>always public</td>
+</tr>
+<tr class="even">
+<td><code>GET /docs</code>, <code>GET /openapi.json</code></td>
+<td>always public (Swagger UI)</td>
+</tr>
+</tbody>
+</table>
+<p>A2A is intentionally public so external A2A agents can perform
+discovery. Lock down the A2A surface at the network layer (private VPC,
+ingress allow-list, mTLS, …) when needed.</p>
+<h2 id="cors">CORS</h2>
+<p>CORS is enabled by default with <code>allowed_origins=["*"]</code>.
+When the wildcard is present:</p>
+<ul>
+<li><code>allow_credentials</code> is forced to <code>False</code>.</li>
+<li>A warning is logged so the operator can see the downgrade.</li>
+</ul>
+<p>To allow credentialed cross-origin requests (cookies,
+<code>Authorization</code> headers), set
+<code>API_ALLOWED_ORIGINS</code> to an explicit comma-separated
+list.</p>
+<p>To disable CORS entirely (e.g. when fronted by a reverse proxy that
+handles it), set <code>API_ENABLE_CORS=false</code>.</p>
+<h2 id="recommended-deployment-posture">Recommended deployment
+posture</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 30%" />
+<col style="width: 38%" />
+<col style="width: 11%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Environment</th>
+<th><code>API_ENABLE_AUTH</code></th>
+<th><code>API_ALLOWED_ORIGINS</code></th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Local dev</td>
+<td><code>false</code></td>
+<td><code>*</code></td>
+<td>Default behavior.</td>
+</tr>
+<tr class="even">
+<td>Internal staging</td>
+<td><code>true</code></td>
+<td>List of staging hostnames</td>
+<td>Generate strong random keys.</td>
+</tr>
+<tr class="odd">
+<td>Production</td>
+<td><code>true</code></td>
+<td>List of production hostnames</td>
+<td>Rotate keys via your secret manager; never check them into git.</td>
+</tr>
+</tbody>
+</table>
+<p><code>config.host</code> defaults to <code>127.0.0.1</code> so the
+server is not exposed outside the machine until you explicitly set
+<code>API_HOST=0.0.0.0</code> (or bind through a reverse proxy).</p>
+<h2 id="verifying">Verifying</h2>
+<p><code>GET /health</code> returns the effective posture:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;auth&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span> <span class="dt">&quot;configured&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span> <span class="dt">&quot;header&quot;</span><span class="fu">:</span> <span class="st">&quot;X-API-Key&quot;</span> <span class="fu">},</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;cors&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span> <span class="dt">&quot;wildcard_origin&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span> <span class="dt">&quot;credentials&quot;</span><span class="fu">:</span> <span class="kw">true</span> <span class="fu">}</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<ul>
+<li><code>enabled</code> reflects <code>API_ENABLE_AUTH</code>.</li>
+<li><code>configured</code> is <code>true</code> only when the
+allow-list is non-empty.</li>
+<li><code>wildcard_origin</code> is <code>true</code> when
+<code>*</code> is present in <code>API_ALLOWED_ORIGINS</code>.</li>
+<li><code>credentials</code> reflects the resolved
+<code>allow_credentials</code> flag.</li>
+</ul>
+</main>
+</body>
+</html>

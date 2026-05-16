@@ -74,19 +74,16 @@ async def create_agent(
     persona_manager=Depends(get_persona_manager),
 ):
     """Create a new agent based on a persona."""
-    # Get the persona
     persona = persona_manager.get_persona(request.persona_id)
     if not persona:
         raise HTTPException(
             status_code=404, detail=f"Persona with ID {request.persona_id} not found"
         )
 
-    # Create the agent
     try:
         model = request.model or None
         agent_id = await agent_factory.create_agent(persona, model=model)
 
-        # Get the created agent
         agent_info = agent_factory.get_agent(agent_id)
         if not agent_info:
             raise HTTPException(status_code=500, detail="Failed to create agent")

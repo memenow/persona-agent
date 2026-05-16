@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Configuration</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="configuration">Configuration</h1>
+<p>The server reads configuration from three places, in order of
+precedence (highest first):</p>
+<ol type="1">
+<li><strong>Environment variables</strong> — preferred for runtime knobs
+that differ per deployment.</li>
+<li><strong>JSON config files</strong> —
+<code>config/llm_config.json</code> for LLM credentials and tunables,
+<code>config/mcp_config.json</code> for MCP servers.</li>
+<li><strong>Hardcoded defaults</strong> in
+<code>src/persona_agent/api/config.py</code>.</li>
+</ol>
+<p><strong>LLM credentials are an exception</strong> to the env-wins
+rule above, and <code>api_key</code> and <code>api_base</code> follow
+different cascades:</p>
+<ul>
+<li><strong><code>api_key</code> is file-first</strong>: the
+<code>model_configs[*]</code> entry whose
+<code>name</code>/<code>model</code> matches <code>default_model</code>
+is checked first, then the file-level <code>api_key</code>.
+<code>OPENAI_API_KEY</code> only kicks in when both file values are
+empty. To rotate the active key with an environment variable, leave the
+file’s <code>api_key</code> empty for the active model.</li>
+<li><strong><code>api_base</code> is env-first</strong>:
+<code>OPENAI_BASE_URL</code> (or <code>OPENAI_API_BASE</code>) wins when
+set; otherwise the per-model <code>api_base</code> is used, then the
+file-level <code>api_base</code>.</li>
+</ul>
+<h2 id="environment-variables">Environment variables</h2>
+<h3 id="server">Server</h3>
+<table>
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 28%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>API_HOST</code></td>
+<td><code>127.0.0.1</code></td>
+<td>Bind host. Set to <code>0.0.0.0</code> to expose externally.</td>
+</tr>
+<tr class="even">
+<td><code>API_PORT</code></td>
+<td><code>8000</code></td>
+<td>Bind port.</td>
+</tr>
+<tr class="odd">
+<td><code>API_DEBUG</code></td>
+<td><code>false</code></td>
+<td>Enable debug-level logging in uvicorn. Truthy values:
+<code>true</code>, <code>1</code>, <code>yes</code>.</td>
+</tr>
+<tr class="even">
+<td><code>API_PREFIX</code></td>
+<td><code>/api/v1</code></td>
+<td>URL prefix for the REST surface.</td>
+</tr>
+<tr class="odd">
+<td><code>API_PUBLIC_BASE_URL</code></td>
+<td>(unset)</td>
+<td>Externally reachable URL used in A2A discovery metadata. Set this
+behind a reverse proxy or load balancer.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="authentication-and-cors">Authentication and CORS</h3>
+<table>
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 28%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>API_ENABLE_AUTH</code></td>
+<td><code>false</code></td>
+<td>When true, all REST routes require a valid API key. A2A routes
+remain public.</td>
+</tr>
+<tr class="even">
+<td><code>API_KEY_HEADER</code></td>
+<td><code>X-API-Key</code></td>
+<td>HTTP header that carries the API key.</td>
+</tr>
+<tr class="odd">
+<td><code>API_ALLOWED_KEYS</code></td>
+<td>(empty)</td>
+<td>Comma-separated allow-list. Blank entries are filtered, so a
+trailing comma is harmless. Auth misconfiguration (enabled with empty
+allow-list) returns <code>503</code>.</td>
+</tr>
+<tr class="even">
+<td><code>API_ENABLE_CORS</code></td>
+<td><code>true</code></td>
+<td>Toggle CORS middleware.</td>
+</tr>
+<tr class="odd">
+<td><code>API_ALLOWED_ORIGINS</code></td>
+<td><code>*</code></td>
+<td>Comma-separated CORS origins. When <code>*</code> is present,
+<code>allow_credentials</code> is forced off and a warning is
+logged.</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="authentication.html">authentication.html</a> for the full
+auth model.</p>
+<h3 id="personas-and-configs">Personas and configs</h3>
+<table>
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 28%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>PERSONAS_DIR</code></td>
+<td><code>&lt;repo&gt;/examples/personas</code></td>
+<td>Directory scanned at startup for persona files. Newly created
+personas are persisted here.</td>
+</tr>
+<tr class="even">
+<td><code>LLM_CONFIG_PATH</code></td>
+<td><code>&lt;repo&gt;/config/llm_config.json</code></td>
+<td>Path to the LLM JSON config.</td>
+</tr>
+<tr class="odd">
+<td><code>MCP_CONFIG_PATH</code></td>
+<td><code>&lt;repo&gt;/config/mcp_config.json</code></td>
+<td>Path to the MCP JSON config.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="llm">LLM</h3>
+<table>
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 28%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>DEFAULT_MODEL</code></td>
+<td><code>gpt-4o</code> (file overrides on load)</td>
+<td>Sets <code>ApiConfig.default_model</code>, which is reported by
+<code>/health</code> and used to pick the matching
+<code>model_configs[*]</code> entry inside <code>load_config()</code>.
+The LLM client itself is built from the file’s
+<code>default_model</code> via
+<code>OpenAICompatibleClient.from_config()</code> and does
+<strong>not</strong> read this env var directly — to change the active
+model, edit <code>llm_config.json</code>.</td>
+</tr>
+<tr class="even">
+<td><code>OPENAI_API_KEY</code></td>
+<td>(unset)</td>
+<td>Fallback API key when <code>llm_config.json</code> is missing or has
+no key.</td>
+</tr>
+<tr class="odd">
+<td><code>OPENAI_API_BASE</code></td>
+<td>(unset)</td>
+<td>Override base URL (used by
+<code>OpenAICompatibleClient</code>).</td>
+</tr>
+<tr class="even">
+<td><code>OPENAI_BASE_URL</code></td>
+<td>(unset)</td>
+<td>Alternate alias accepted by <code>from_config()</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="llm_config.json"><code>llm_config.json</code></h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;default_model&quot;</span><span class="fu">:</span> <span class="st">&quot;gpt-4o-mini&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;api_key&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;api_base&quot;</span><span class="fu">:</span> <span class="st">&quot;https://api.openai.com/v1&quot;</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;model_configs&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;gpt-4o-mini&quot;</span><span class="fu">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;api_key&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;api_base&quot;</span><span class="fu">:</span> <span class="st">&quot;https://api.openai.com/v1&quot;</span><span class="fu">,</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;model&quot;</span><span class="fu">:</span> <span class="st">&quot;gpt-4o-mini&quot;</span><span class="fu">,</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;temperature&quot;</span><span class="fu">:</span> <span class="fl">0.7</span><span class="fu">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;max_tokens&quot;</span><span class="fu">:</span> <span class="dv">4000</span><span class="fu">,</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;top_p&quot;</span><span class="fu">:</span> <span class="fl">1.0</span><span class="fu">,</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;frequency_penalty&quot;</span><span class="fu">:</span> <span class="fl">0.0</span><span class="fu">,</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;presence_penalty&quot;</span><span class="fu">:</span> <span class="fl">0.0</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;api_settings&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;timeout&quot;</span><span class="fu">:</span> <span class="dv">120</span><span class="fu">,</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;retry_attempts&quot;</span><span class="fu">:</span> <span class="dv">3</span><span class="fu">,</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;retry_delay&quot;</span><span class="fu">:</span> <span class="dv">2</span><span class="fu">,</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;log_requests&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;log_responses&quot;</span><span class="fu">:</span> <span class="kw">false</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<ul>
+<li><code>default_model</code> selects which <code>model_configs</code>
+entry is loaded at startup. Matching is done on <code>model</code>
+first, then <code>name</code>. If no entry matches, the first one is
+used as a fallback.</li>
+<li>A per-model <code>api_key</code>/<code>api_base</code> overrides the
+file-level <code>api_key</code>/<code>api_base</code> for that
+model.</li>
+<li><code>api_settings</code> is currently <strong>ignored</strong> by
+the loader. <code>OpenAICompatibleClient.from_config()</code> reads only
+<code>default_model</code>, <code>api_key</code>, <code>api_base</code>,
+<code>temperature</code>, and <code>max_tokens</code>. The OpenAI SDK
+timeout stays at the <code>OpenAICompatibleClient</code> constructor
+default of 120 seconds regardless of
+<code>api_settings.timeout</code>.</li>
+</ul>
+<p>Any provider exposing an OpenAI-compatible Chat Completions API
+works: OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM proxies, etc.</p>
+<h2 id="mcp_config.json"><code>mcp_config.json</code></h2>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;mcpServers&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;mcp-server-fetch&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;uvx&quot;</span><span class="fu">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;args&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;mcp-server-fetch&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;disabled&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;Web content fetching and conversion for efficient LLM usage&quot;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">},</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;brave_search&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;node&quot;</span><span class="fu">,</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;args&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;path/to/mcp-brave-search/index.js&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;env&quot;</span><span class="fu">:</span> <span class="fu">{</span> <span class="dt">&quot;BRAVE_API_KEY&quot;</span><span class="fu">:</span> <span class="st">&quot;${BRAVE_API_KEY}&quot;</span> <span class="fu">},</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>      <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;Brave Search MCP service&quot;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">}</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<ul>
+<li>Both <code>"mcpServers"</code> (current) and <code>"services"</code>
+(legacy) section names are accepted. When both exist they are merged;
+<code>services</code> entries must set <code>type: "stdio"</code> and
+<code>enabled: true</code> (defaults).</li>
+<li>Each entry must define <code>command</code>; <code>args</code>,
+<code>env</code>, <code>description</code>, and <code>disabled</code>
+are optional.</li>
+<li><code>${VAR_NAME}</code> references in <code>command</code>,
+<code>args</code>, and <code>env</code> values are substituted from the
+process environment at load time. Missing variables expand to an empty
+string — set defaults explicitly when that matters.</li>
+</ul>
+<p>See <a href="mcp-integration.html">mcp-integration.html</a> for runtime
+behavior.</p>
+<h2 id="verifying-effective-config">Verifying effective config</h2>
+<p>The startup log prints a one-line summary of the resolved config:</p>
+<pre><code>Effective config: host=127.0.0.1 port=8000 auth=False api_keys=0 cors=True wildcard_origin=True</code></pre>
+<p>The <code>/health</code> endpoint surfaces the same information as
+JSON without requiring auth, so operators can verify a deployment
+without holding a key.</p>
+</main>
+</body>
+</html>

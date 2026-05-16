@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Persona Schema</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="persona-schema">Persona Schema</h1>
+<p>A persona is a YAML or JSON file describing a character. The
+<code>Persona</code> Pydantic model in
+<code>src/persona_agent/api/persona_manager.py</code> is the
+authoritative schema.</p>
+<h2 id="fields">Fields</h2>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 20%" />
+<col style="width: 33%" />
+<col style="width: 23%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>string</td>
+<td>no</td>
+<td>Auto-generated UUID when omitted. Must match
+<code>^[a-z0-9_-]{1,64}$</code>. Files <strong>discovered at
+startup</strong> under <code>PERSONAS_DIR</code> are run through
+<code>PersonaManager._load_persona_file</code>, which sanitizes
+non-matching values in place (with a warning log) so legacy files still
+load. Files supplied through <code>POST /api/v1/personas/upload</code>
+or <code>persona-agent import-persona</code> go through
+<code>add_persona()</code>, which constructs a <code>Persona</code>
+directly — Pydantic rejects non-matching IDs with a validation error
+rather than sanitizing them.</td>
+</tr>
+<tr class="even">
+<td><code>name</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>Display name.</td>
+</tr>
+<tr class="odd">
+<td><code>description</code></td>
+<td>string</td>
+<td>no</td>
+<td>One- or two-sentence summary. Default <code>""</code>.</td>
+</tr>
+<tr class="even">
+<td><code>personal_background</code></td>
+<td>object</td>
+<td>no</td>
+<td>Free-form key/value details (birth, education, profession, …).
+Default <code>{}</code>.</td>
+</tr>
+<tr class="odd">
+<td><code>language_style</code></td>
+<td>object</td>
+<td>no</td>
+<td>Free-form style hints. Default <code>{}</code>. Recognized keys used
+by the system-prompt generator: <code>tone</code>,
+<code>vocabulary</code>, <code>speaking_style</code>,
+<code>common_phrases</code> (list).</td>
+</tr>
+<tr class="even">
+<td><code>knowledge_domains</code></td>
+<td>object</td>
+<td>no</td>
+<td>Map of domain → list of topics. Each domain becomes an A2A
+AgentSkill. Default <code>{}</code>.</td>
+</tr>
+<tr class="odd">
+<td><code>interaction_samples</code></td>
+<td>array</td>
+<td>no</td>
+<td>List of example exchanges. Default <code>[]</code>.</td>
+</tr>
+<tr class="even">
+<td><code>system_prompt</code></td>
+<td>string | null</td>
+<td>no</td>
+<td>Overrides the auto-generated prompt when set. Default
+<code>null</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="id-rules">ID rules</h3>
+<ul>
+<li>Allowed characters: lowercase ASCII letters, digits, hyphen,
+underscore.</li>
+<li>Length: 1–64 characters.</li>
+<li>The validator runs on <strong>load</strong>, <strong>save</strong>,
+and <strong>delete</strong>. The save path additionally rejects
+<code>..</code>, <code>/</code>, <code>\</code>, and null bytes as
+defense-in-depth against path traversal even though the regex already
+forbids them.</li>
+</ul>
+<p>When <code>id</code> is missing from a file the loader derives one
+from the filename stem (e.g. <code>trump.yaml</code> →
+<code>trump</code>), sanitizing if necessary.</p>
+<h2 id="examples">Examples</h2>
+<h3 id="minimal">Minimal</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> Ada Lovelace</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">description</span><span class="kw">:</span><span class="at"> Mathematician and pioneer of computing.</span></span></code></pre></div>
+<h3 id="full">Full</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">id</span><span class="kw">:</span><span class="at"> trump</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> Donald Trump</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">description</span><span class="kw">:</span><span class="at"> 45th President of the United States, businessman, and media personality known for his distinctive communication style.</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">personal_background</span><span class="kw">:</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">birth</span><span class="kw">:</span><span class="at"> June 14, 1946, Queens, New York City, USA</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">education</span><span class="kw">:</span><span class="at"> Wharton School of the University of Pennsylvania</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">profession</span><span class="kw">:</span><span class="at"> Businessman, Politician, Television Personality</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">political_party</span><span class="kw">:</span><span class="at"> Republican</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="fu">language_style</span><span class="kw">:</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">tone</span><span class="kw">:</span><span class="at"> Assertive, direct, hyperbolic</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">vocabulary</span><span class="kw">:</span><span class="at"> Simple, repetitive, superlative-heavy</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">speaking_style</span><span class="kw">:</span><span class="at"> Stream of consciousness, frequent use of simple sentences</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">common_phrases</span><span class="kw">:</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="st">&quot;Believe me&quot;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="st">&quot;Tremendous&quot;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="st">&quot;Make America Great Again&quot;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="fu">knowledge_domains</span><span class="kw">:</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">politics</span><span class="kw">:</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> American politics</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> Immigration policy</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> Trade policy</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">business</span><span class="kw">:</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> Real estate</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> Branding</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> Negotiation</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a><span class="fu">interaction_samples</span><span class="kw">:</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="kw">-</span><span class="at"> </span><span class="fu">type</span><span class="kw">:</span><span class="at"> quote</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="fu">content</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;We will make America strong again.&quot;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="kw">-</span><span class="at"> </span><span class="fu">type</span><span class="kw">:</span><span class="at"> conversation</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a><span class="fu">    content</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>      Q: What&#39;s your approach to international trade?</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>      A: We&#39;ve been taken advantage of by other countries for decades. …</span></code></pre></div>
+<p>See <code>examples/personas/trump.yaml</code> for a working file used
+by the test suite.</p>
+<h2 id="system-prompt-generation">System prompt generation</h2>
+<p><code>Persona.generate_system_prompt()</code> builds the LLM system
+message. If the persona file sets <code>system_prompt</code>, that value
+is returned verbatim. Otherwise the generator stitches together:</p>
+<ol type="1">
+<li><code>"You are &lt;name&gt;."</code></li>
+<li>The <code>description</code>.</li>
+<li><strong>Language style</strong> (when present): tone, vocabulary,
+speaking style, and a “Frequently use phrases like: …” line if
+<code>common_phrases</code> is a list.</li>
+<li><strong>Background</strong>: each <code>personal_background</code>
+key formatted as
+<code>- &lt;Title-Cased Key&gt;: &lt;value&gt;</code>.</li>
+<li><strong>Knowledge domains</strong> (when each value is a list):
+comma-joined topics per domain.</li>
+<li>A reminder that MCP tools are available and should be used when
+helpful.</li>
+<li>A reminder to stay in character.</li>
+</ol>
+<p>Override with <code>system_prompt</code> when you need exact control
+— e.g. for deterministic replay in tests or for personas whose voice
+needs more than the templated blocks can express.</p>
+<h2 id="loading">Loading</h2>
+<p>Personas are loaded at startup from <code>PERSONAS_DIR</code>
+(default <code>examples/personas/</code>). Any file ending in
+<code>.json</code>, <code>.yaml</code>, or <code>.yml</code> is parsed.
+Files that fail to parse are skipped with a warning; the server
+continues with the remaining personas.</p>
+<p>Newly created personas (via <code>POST /api/v1/personas</code> or
+<code>POST /api/v1/personas/upload</code>) are saved as JSON in the same
+directory. The <code>import-persona</code> CLI command does the same
+from the command line.</p>
+</main>
+</body>
+</html>

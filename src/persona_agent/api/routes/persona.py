@@ -82,7 +82,6 @@ async def create_persona(
     persona_data = persona.model_dump(exclude_unset=True)
     new_persona = persona_manager.add_persona(persona_data)
 
-    # Save the persona to a file
     try:
         persona_manager.save_persona(new_persona, format="json")
     except Exception as e:
@@ -112,7 +111,6 @@ async def update_persona(
             status_code=404, detail=f"Persona with ID {persona_id} not found"
         )
 
-    # Update only provided fields
     update_data = persona.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         if value is not None:
@@ -124,7 +122,6 @@ async def update_persona(
     if not updated_persona:
         raise HTTPException(status_code=500, detail="Failed to update persona")
 
-    # Save the updated persona to a file
     try:
         persona_manager.save_persona(updated_persona, format="json")
     except Exception as e:
@@ -173,7 +170,6 @@ async def upload_persona(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file name provided")
 
-    # Check file extension
     if not (
         file.filename.endswith(".json")
         or file.filename.endswith(".yaml")
@@ -190,10 +186,8 @@ async def upload_persona(
         else:  # YAML file
             persona_data = yaml.safe_load(content_str)
 
-        # Create the persona
         new_persona = persona_manager.add_persona(persona_data)
 
-        # Save the persona to a file
         try:
             persona_manager.save_persona(new_persona, format="json")
         except Exception as e:

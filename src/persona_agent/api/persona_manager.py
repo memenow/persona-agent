@@ -1,4 +1,4 @@
-"""Persona manager for loading and managing persona definitions."""
+"""Load, normalize, and persist YAML/JSON persona definitions."""
 
 import json
 import logging
@@ -23,7 +23,7 @@ class PersonaPersistenceError(RuntimeError):
 
 
 class Persona(BaseModel):
-    """Persona model representing a character definition."""
+    """Validated persona definition used to build prompts and agent cards."""
 
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
@@ -47,7 +47,7 @@ class Persona(BaseModel):
     system_prompt: str | None = None
 
     def generate_system_prompt(self) -> str:
-        """Generate a system prompt for the persona based on its attributes."""
+        """Build the default system prompt from structured persona fields."""
         if self.system_prompt:
             return self.system_prompt
 
@@ -55,7 +55,8 @@ class Persona(BaseModel):
         prompt_parts.append(f"You are {self.name}.")
         prompt_parts.append(self.description)
 
-        # Add language style information
+        # Voice and style hints keep generated responses aligned with the
+        # persona file without requiring a hand-written system prompt.
         if self.language_style:
             prompt_parts.append("\nLanguage style:")
             if "tone" in self.language_style:
@@ -76,7 +77,8 @@ class Persona(BaseModel):
                 )
                 prompt_parts.append(f"- Frequently use phrases like: {phrases}")
 
-        # Add background information
+        # Background entries are user-defined keys, so render them as labels
+        # instead of assuming a fixed schema.
         if self.personal_background:
             background_parts = []
             for key, value in self.personal_background.items():
@@ -85,7 +87,6 @@ class Persona(BaseModel):
                 prompt_parts.append("\nBackground:")
                 prompt_parts.extend(background_parts)
 
-        # Add knowledge domains
         if self.knowledge_domains:
             prompt_parts.append("\nYou have knowledge and expertise in:")
             for domain, topics in self.knowledge_domains.items():
@@ -95,12 +96,10 @@ class Persona(BaseModel):
                         f"- {domain.replace('_', ' ').title()}: {topics_str}"
                     )
 
-        # Add instruction to use MCP tools when appropriate
         prompt_parts.append(
             "\nYou have access to various tools through the Model Context Protocol (MCP). Use these tools when they would help you provide better responses or access information you don't have."
         )
 
-        # Add instruction to stay in character
         prompt_parts.append(
             "\nAlways stay in character and respond as this persona would, using their speaking style, knowledge, and background to inform your responses."
         )
@@ -114,7 +113,7 @@ class Persona(BaseModel):
 
 
 class PersonaManager:
-    """Manager for loading and handling persona definitions."""
+    """Manage personas loaded from a filesystem directory."""
 
     def __init__(self, personas_dir: str):
         self.personas_dir = personas_dir
@@ -223,7 +222,7 @@ class PersonaManager:
         if persona_id not in self.personas:
             return None
 
-        persona_data["id"] = persona_id  # Ensure ID remains unchanged
+        persona_data["id"] = persona_id  # Keep the resource identity stable.
         persona = Persona.from_dict(persona_data)
         self.personas[persona_id] = persona
         return persona
@@ -252,7 +251,9 @@ class PersonaManager:
         for file_path in candidates:
             abs_path = os.path.abspath(file_path)
             if os.path.commonpath([root, abs_path]) != root:
-                logger.warning("Skipping persona file outside personas_dir: %s", file_path)
+                logger.warning(
+                    "Skipping persona file outside personas_dir: %s", file_path
+                )
                 continue
             if os.path.isfile(abs_path):
                 os.remove(abs_path)
@@ -260,7 +261,7 @@ class PersonaManager:
         self._persona_files.pop(persona_id, None)
 
     def save_persona(self, persona: Persona, format: str = "json") -> str:
-        """Save a persona to a file."""
+        """Persist a persona using the canonical ``<id>.<format>`` filename."""
         if format not in ("json", "yaml"):
             raise ValueError("Format must be 'json' or 'yaml'")
 

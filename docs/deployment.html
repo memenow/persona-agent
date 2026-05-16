@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Deployment</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="Documentation">
+  <p class="site-nav__title">Persona Agent Docs</p>
+  <ul class="site-nav__links">
+    <li><a href="index.html">Index</a></li>
+    <li><a href="api-reference.html">REST API</a></li>
+    <li><a href="a2a-protocol.html">A2A</a></li>
+    <li><a href="persona-schema.html">Personas</a></li>
+    <li><a href="configuration.html">Configuration</a></li>
+    <li><a href="mcp-integration.html">MCP</a></li>
+    <li><a href="authentication.html">Auth</a></li>
+    <li><a href="deployment.html">Deployment</a></li>
+    <li><a href="development.html">Development</a></li>
+    <li><a href="changelog.html">Changelog</a></li>
+  </ul>
+</nav>
+<main>
+<h1 id="deployment">Deployment</h1>
+<p>The server is a single FastAPI app served by uvicorn. Most
+deployments just need to set the right environment variables and run the
+<code>persona-agent api</code> entrypoint.</p>
+<h2 id="local">Local</h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> sync</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">uv</span> run persona-agent api</span></code></pre></div>
+<p>Default bind: <code>http://127.0.0.1:8000</code>. REST under
+<code>/api/v1</code>, A2A under <code>/a2a/</code>, aggregate agent card
+at <code>/.well-known/agent.json</code>, Swagger UI at
+<code>/docs</code>.</p>
+<h2 id="exposing-the-server">Exposing the server</h2>
+<p>To bind on all interfaces:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="va">API_HOST</span><span class="op">=</span>0.0.0.0 <span class="va">API_PORT</span><span class="op">=</span>8000 <span class="ex">uv</span> run persona-agent api</span></code></pre></div>
+<p>When deploying behind a reverse proxy (nginx, Caddy, Traefik, …), set
+<code>API_PUBLIC_BASE_URL</code> so the generated AgentCard URLs are
+reachable from outside:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">API_PUBLIC_BASE_URL</span><span class="op">=</span>https://persona-agent.example.com</span></code></pre></div>
+<p>The aggregate card’s <code>url</code> will become
+<code>https://persona-agent.example.com/a2a/</code>, and each persona’s
+card will use
+<code>https://persona-agent.example.com/a2a/{persona_id}/</code>.</p>
+<h2 id="configuration-files">Configuration files</h2>
+<p>By default the server expects <code>config/llm_config.json</code> and
+<code>config/mcp_config.json</code> relative to the repository root.
+Override with <code>LLM_CONFIG_PATH</code> and
+<code>MCP_CONFIG_PATH</code> to point at deployment-specific files (for
+example mounted from a Kubernetes secret).</p>
+<p>If <code>mcp_config.json</code> is missing or has no servers, MCP is
+simply disabled and the agents respond without tools.</p>
+<h2 id="auth-and-cors">Auth and CORS</h2>
+<p>See <a href="authentication.html">authentication.html</a>. The short
+version: set <code>API_ENABLE_AUTH=true</code> with a non-empty
+<code>API_ALLOWED_KEYS</code>, and limit
+<code>API_ALLOWED_ORIGINS</code> to your trusted hostnames in
+production.</p>
+<h2 id="process-model">Process model</h2>
+<ul>
+<li>The app stores singletons (LLM client, MCP manager, persona manager,
+agent factory) on <code>app.state</code> and reuses them across
+requests.</li>
+<li>Conversation state is in-process: per-context history lives on each
+<code>PersonaAgentExecutor</code> instance; sessions and agents live in
+the <code>AgentFactory</code>. Restarting the process drops them
+all.</li>
+<li>Run a single uvicorn worker per process for now — multiple workers
+would each maintain their own state and produce inconsistent results.
+Horizontal scaling needs an external session store (not
+implemented).</li>
+</ul>
+<h2 id="logging">Logging</h2>
+<p>The root logger is configured to INFO at startup with a simple
+format:</p>
+<pre><code>2026-05-16 00:00:00,000 - api_server - INFO - &lt;message&gt;</code></pre>
+<p>Set <code>API_DEBUG=true</code> to drop uvicorn’s log level to
+<code>debug</code>. The app’s own loggers are unaffected by
+<code>API_DEBUG</code>; tune them via Python’s standard
+<code>logging</code> config if you need more verbosity.</p>
+<p>Errors are logged with <code>logger.exception(...)</code> so the
+traceback is captured; client responses use a generic
+<code>{ "detail": "..." }</code> message with no exception text.
+Diagnose via the server log, not the client response.</p>
+<h2 id="health-and-observability">Health and observability</h2>
+<ul>
+<li><code>GET /health</code> is always public and reports auth posture,
+CORS posture, default model, and the count of loaded MCP tools. Use it
+as your uptime probe.</li>
+<li>The startup log line
+<code>Effective config: host=… port=… auth=…   api_keys=… cors=… wildcard_origin=…</code>
+lets you confirm the resolved configuration without hitting the
+network.</li>
+</ul>
+<h2 id="containerization">Containerization</h2>
+<p>A minimal container image looks like:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode dockerfile"><code class="sourceCode dockerfile"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">FROM</span> ghcr.io/astral-sh/uv:python3.12-bookworm-slim</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">WORKDIR</span> /app</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Install third-party dependencies first for layer caching. The</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co"># --no-install-project flag skips installing persona-agent itself, so</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co"># this layer doesn&#39;t need src/ or README.md yet.</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> pyproject.toml uv.lock ./</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">uv</span> sync <span class="at">--frozen</span> <span class="at">--no-dev</span> <span class="at">--no-install-project</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Now copy the project sources and install persona-agent into the venv.</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> README.md ./</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> src ./src</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="kw">RUN</span> <span class="ex">uv</span> sync <span class="at">--frozen</span> <span class="at">--no-dev</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> examples ./examples</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a><span class="kw">COPY</span> config ./config</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="kw">ENV</span> API_HOST=0.0.0.0 <span class="op">\</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    API_PORT=8000 <span class="op">\</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>    PERSONAS_DIR=/app/examples/personas <span class="op">\</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    LLM_CONFIG_PATH=/app/config/llm_config.json <span class="op">\</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>    MCP_CONFIG_PATH=/app/config/mcp_config.json</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="kw">EXPOSE</span> 8000</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="kw">CMD</span> [<span class="st">&quot;uv&quot;</span>, <span class="st">&quot;run&quot;</span>, <span class="st">&quot;persona-agent&quot;</span>, <span class="st">&quot;api&quot;</span>]</span></code></pre></div>
+<p>The two <code>uv sync</code> invocations are intentional: the first
+installs only third-party dependencies (cached unless
+<code>pyproject.toml</code>/<code>uv.lock</code> change), and the second
+installs the local <code>persona-agent</code> package after its sources
+and the <code>README.md</code> referenced by <code>pyproject.toml</code>
+are in place. Collapsing them into a single <code>uv sync</code> before
+<code>COPY src</code> would fail because the project itself cannot be
+installed without those files.</p>
+<p>Mount <code>config/</code> and <code>examples/personas/</code> as
+volumes (or build them into the image with the right ownership) so
+credentials and persona files are under your control, not baked into the
+image.</p>
+</main>
+</body>
+</html>

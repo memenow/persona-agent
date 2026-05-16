@@ -72,7 +72,7 @@ Persona YAML/JSON files require only `name`. Optional fields: `id` (auto-generat
 ## Documentation
 
 - `README.md` — quick start and orientation.
-- `docs/` — in-depth references (API, A2A, persona schema, configuration, MCP, auth, deployment, development, changelog). Update the matching `docs/` file when changing behavior it documents.
+- `docs/index.html` — in-depth references (API, A2A, persona schema, configuration, MCP, auth, deployment, development, changelog). Update the matching `docs/*.html` file when changing behavior it documents.
 
 ## Git Workflow
 
@@ -88,7 +88,7 @@ Fork-based: `origin` is your fork, `upstream` is `memenow/persona-agent`. PR to 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **persona-agent** (762 symbols, 1141 relationships, 12 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **persona-agent** (768 symbols, 1246 relationships, 20 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-# Persona API Models
+# Persona resource models.
 class PersonaResponse(BaseModel):
     """Response model for persona operations."""
 
@@ -85,7 +85,7 @@ class UpdatePersonaRequest(BaseModel):
     )
 
 
-# Agent API Models
+# Agent resource models.
 class AgentResponse(BaseModel):
     """Response model for agent operations."""
 
@@ -108,7 +108,7 @@ class CreateAgentRequest(BaseModel):
     model: str | None = Field(default=None, description="Model to use for the agent")
 
 
-# Session API Models
+# Session resource models.
 class SessionResponse(BaseModel):
     """Response model for session operations."""
 
@@ -170,7 +170,7 @@ class SendMessageResponse(BaseModel):
     )
 
 
-# Tool API Models
+# Tool and service models.
 class ToolResponse(BaseModel):
     """Response model for tool operations."""
 
@@ -229,7 +229,7 @@ class ServiceListResponse(BaseModel):
     )
 
 
-# Common API Models
+# Shared response models.
 class ErrorResponse(BaseModel):
     """Standard error response."""
 
