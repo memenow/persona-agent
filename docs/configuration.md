@@ -49,7 +49,7 @@ See [authentication.md](authentication.md) for the full auth model.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DEFAULT_MODEL` | `gpt-4o` (file overrides on load) | Default LLM model identifier. |
+| `DEFAULT_MODEL` | `gpt-4o` (file overrides on load) | Sets `ApiConfig.default_model`, which is reported by `/health` and used to pick the matching `model_configs[*]` entry inside `load_config()`. The LLM client itself is built from the file's `default_model` via `OpenAICompatibleClient.from_config()` and does **not** read this env var directly — to change the active model, edit `llm_config.json`. |
 | `OPENAI_API_KEY` | (unset) | Fallback API key when `llm_config.json` is missing or has no key. |
 | `OPENAI_API_BASE` | (unset) | Override base URL (used by `OpenAICompatibleClient`). |
 | `OPENAI_BASE_URL` | (unset) | Alternate alias accepted by `from_config()`. |
@@ -89,9 +89,11 @@ See [authentication.md](authentication.md) for the full auth model.
   matches, the first one is used as a fallback.
 - A per-model `api_key`/`api_base` overrides the file-level
   `api_key`/`api_base` for that model.
-- `api_settings` is reserved for future use; only `timeout` is wired
-  through today (as the `OpenAICompatibleClient` constructor argument
-  derived from defaults).
+- `api_settings` is currently **ignored** by the loader.
+  `OpenAICompatibleClient.from_config()` reads only `default_model`,
+  `api_key`, `api_base`, `temperature`, and `max_tokens`. The OpenAI SDK
+  timeout stays at the `OpenAICompatibleClient` constructor default of
+  120 seconds regardless of `api_settings.timeout`.
 
 Any provider exposing an OpenAI-compatible Chat Completions API works:
 OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM proxies, etc.

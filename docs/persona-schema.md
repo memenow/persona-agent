@@ -8,7 +8,7 @@ A persona is a YAML or JSON file describing a character. The
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `id` | string | no | Auto-generated UUID when omitted. Must match `^[a-z0-9_-]{1,64}$`. Non-matching values supplied in a file are sanitized in place (with a warning log) so legacy files still load. |
+| `id` | string | no | Auto-generated UUID when omitted. Must match `^[a-z0-9_-]{1,64}$`. Files **discovered at startup** under `PERSONAS_DIR` are run through `PersonaManager._load_persona_file`, which sanitizes non-matching values in place (with a warning log) so legacy files still load. Files supplied through `POST /api/v1/personas/upload` or `persona-agent import-persona` go through `add_persona()`, which constructs a `Persona` directly — Pydantic rejects non-matching IDs with a validation error rather than sanitizing them. |
 | `name` | string | **yes** | Display name. |
 | `description` | string | no | One- or two-sentence summary. Default `""`. |
 | `personal_background` | object | no | Free-form key/value details (birth, education, profession, …). Default `{}`. |

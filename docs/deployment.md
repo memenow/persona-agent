@@ -94,11 +94,21 @@ A minimal container image looks like:
 ```dockerfile
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 WORKDIR /app
+
+# Install third-party dependencies first for layer caching. The
+# --no-install-project flag skips installing persona-agent itself, so
+# this layer doesn't need src/ or README.md yet.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Now copy the project sources and install persona-agent into the venv.
+COPY README.md ./
 COPY src ./src
+RUN uv sync --frozen --no-dev
+
 COPY examples ./examples
 COPY config ./config
+
 ENV API_HOST=0.0.0.0 \
     API_PORT=8000 \
     PERSONAS_DIR=/app/examples/personas \
@@ -107,6 +117,14 @@ ENV API_HOST=0.0.0.0 \
 EXPOSE 8000
 CMD ["uv", "run", "persona-agent", "api"]
 ```
+
+The two `uv sync` invocations are intentional: the first installs only
+third-party dependencies (cached unless `pyproject.toml`/`uv.lock`
+change), and the second installs the local `persona-agent` package
+after its sources and the `README.md` referenced by `pyproject.toml` are
+in place. Collapsing them into a single `uv sync` before `COPY src`
+would fail because the project itself cannot be installed without those
+files.
 
 Mount `config/` and `examples/personas/` as volumes (or build them into
 the image with the right ownership) so credentials and persona files are

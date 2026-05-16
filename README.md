@@ -54,8 +54,10 @@ Set your LLM credentials in `config/llm_config.json` (see
 }
 ```
 
-Environment variables override file values, so for a quick start you
-can also just export `OPENAI_API_KEY`.
+For a quick start, leave the `api_key` fields empty in the file and
+export `OPENAI_API_KEY`. The LLM client falls back to that environment
+variable only when both the per-model and file-level `api_key` are
+empty — non-empty file values take precedence.
 
 ## CLI
 

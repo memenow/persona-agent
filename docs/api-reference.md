@@ -224,9 +224,14 @@ Send a message and wait for the agent's response.
 }
 ```
 
-- The session is mutated only on success. On internal errors the response
-  contains `success: false` and a generic message; details are logged
-  server-side, never returned to the caller.
+- The user message is appended to executor history **before** the LLM
+  call, so it remains in history even when the call fails;
+  `GET /sessions/{id}/messages` will show the failed turn.
+- `last_active` is updated only on success.
+- On internal errors the response contains `success: false` and a generic
+  message; details are logged server-side, never returned to the caller.
+  Clients retrying a failed `POST /messages` should expect the previous
+  user message to already be in the conversation.
 
 ## A2A discovery
 
