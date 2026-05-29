@@ -57,7 +57,10 @@ Set your LLM credentials in `config/llm_config.json` (see
 For a quick start, leave the `api_key` fields empty in the file and
 export `OPENAI_API_KEY`. The LLM client falls back to that environment
 variable only when both the per-model and file-level `api_key` are
-empty — non-empty file values take precedence.
+empty — non-empty file values take precedence. The base URL resolves the
+other way around: `OPENAI_BASE_URL` / `OPENAI_API_BASE` override the
+file's `api_base` when set. See
+[docs/configuration.html](docs/configuration.html) for the full cascade.
 
 ## CLI
 

@@ -52,8 +52,14 @@ class ApiConfig(BaseModel):
         llm_config_path: Path to the LLM configuration file.
         mcp_config_path: Path to the MCP service configuration file.
         default_model: Default LLM model to use for agents.
-        openai_api_key: Optional OpenAI API key.
-        openai_api_base: Optional custom OpenAI API base URL.
+        openai_api_key: Optional OpenAI API key. Informational only —
+            ``load_config`` mirrors the matched model's key here, but the
+            active LLM client is built by
+            ``OpenAICompatibleClient.from_config`` from ``llm_config.json``,
+            not from this field.
+        openai_api_base: Optional custom OpenAI API base URL. Same caveat as
+            ``openai_api_key``: populated for inspection, not used to build
+            the client.
         public_base_url: Optional externally reachable API base URL.
     """
 
@@ -182,13 +188,17 @@ def load_config() -> ApiConfig:
             if ENV_DEFAULT_MODEL not in os.environ and "default_model" in llm_config:
                 config.default_model = llm_config["default_model"]
 
-            # Get API keys and settings from model_configs
+            # Mirror the matched model's credentials onto the config for
+            # inspection. These fields are NOT used to build the LLM client:
+            # OpenAICompatibleClient.from_config reads llm_config.json
+            # directly and owns the real api_key (file-first) / api_base
+            # (env-first) cascade. They are surfaced here only so callers can
+            # introspect the resolved model.
             if "model_configs" in llm_config and isinstance(
                 llm_config["model_configs"], list
             ):
                 for model_config in llm_config["model_configs"]:
                     if model_config.get("name") == config.default_model:
-                        # Only use values from the config file if the environment variable is not set
                         if not config.openai_api_key:
                             config.openai_api_key = model_config.get("api_key")
                         if not config.openai_api_base:

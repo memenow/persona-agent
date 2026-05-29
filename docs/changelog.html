@@ -39,6 +39,25 @@ from Markdown to static HTML pages with a shared local stylesheet and
 <li>Maintenance: refreshed code comments and docstrings so they
 emphasize security, concurrency, configuration precedence, and
 persistence invariants without restating obvious code behavior.</li>
+<li>Documentation accuracy: aligned the LLM credential-cascade
+description across the changelog, <code>README.md</code>,
+<code>CLAUDE.md</code>, and <code>AGENTS.md</code> with
+<a href="configuration.html">configuration.html</a> and the shipped
+<code>OpenAICompatibleClient.from_config()</code> behavior —
+<code>api_key</code> resolves file-first
+(<code>OPENAI_API_KEY</code> is a fallback only) and
+<code>api_base</code> resolves env-first
+(<code>OPENAI_BASE_URL</code> / <code>OPENAI_API_BASE</code>). Clarified in
+<code>api/config.py</code> that <code>ApiConfig.openai_api_key</code> /
+<code>openai_api_base</code> are populated for inspection only and do not
+build the client.</li>
+<li>Documentation completeness: documented the AgentCard
+<code>version</code> (<code>"1.0.0"</code>, independent of the
+<code>0.2.0</code> API version) in
+<a href="a2a-protocol.html">a2a-protocol.html</a>, and noted in
+<a href="persona-schema.html">persona-schema.html</a> that
+<code>system_prompt</code> is not echoed by the persona detail
+endpoint.</li>
 </ul>
 <h2 id="pr-9-17112b6">0.2.0 (PR #9 — <code>17112b6</code>)</h2>
 <p>P0 review follow-ups closing the last batch of API hardening
@@ -67,12 +86,16 @@ separator can no longer admit an empty key.</li>
 <h2 id="pr-8-96baf48">PR #8 — <code>96baf48</code></h2>
 <p>Runtime config and persona persistence hardening.</p>
 <ul>
-<li><strong>LLM credential cascade</strong>: <code>load_config</code>
-reads <code>default_model</code> first, then loads
-<code>api_key</code>/<code>api_base</code> from the matching
-<code>model_configs</code> entry, with environment overrides winning. A
-global file-level <code>api_key</code> no longer overrides a per-model
-key.</li>
+<li><strong>LLM credential cascade</strong>: the
+<code>model_configs</code> entry matching <code>default_model</code>
+became the primary source of <code>api_key</code> and
+<code>api_base</code>, so a global file-level <code>api_key</code> no
+longer overrides a per-model key. The two credentials resolve on
+different cascades (see <a href="configuration.html">configuration.html</a>):
+<code>api_key</code> is file-first — <code>OPENAI_API_KEY</code> is only a
+fallback when both the per-model and file-level values are empty — while
+<code>api_base</code> is env-first, with <code>OPENAI_BASE_URL</code> /
+<code>OPENAI_API_BASE</code> winning when set.</li>
 <li><strong><code>save_persona</code> re-validation</strong>:
 <code>Persona.save_persona</code> re-checks the ID regex and rejects
 path-traversal patterns (<code>..</code>, <code>/</code>,
