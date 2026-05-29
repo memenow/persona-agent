@@ -52,6 +52,8 @@ Auth/CORS env: `API_ENABLE_AUTH`, `API_KEY_HEADER`, `API_ALLOWED_KEYS` (CSV, bla
 File env: `PERSONAS_DIR` (default `examples/personas`), `LLM_CONFIG_PATH` (`config/llm_config.json`), `MCP_CONFIG_PATH` (`config/mcp_config.json`).
 LLM env: `OPENAI_API_KEY`, `OPENAI_API_BASE` / `OPENAI_BASE_URL`, `DEFAULT_MODEL`.
 
+LLM credential precedence is field-specific and an exception to the env-first rule above: `api_key` is **file-first** (`OPENAI_API_KEY` is a fallback only when both the per-model and file-level keys are empty), while `api_base` is **env-first** (`OPENAI_BASE_URL` / `OPENAI_API_BASE` win over the file). The active client is built by `OpenAICompatibleClient.from_config()` from `llm_config.json`; `ApiConfig.openai_api_key` / `openai_api_base` are populated for inspection but do not construct the client. `DEFAULT_MODEL` sets `ApiConfig.default_model` (default `gpt-4o`, overridden by the file's `default_model` on load). See `docs/index.html`.
+
 ## A2A Endpoints
 
 - `GET /.well-known/agent.json` — Aggregate agent card for all personas (public).

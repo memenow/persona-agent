@@ -107,7 +107,9 @@ AgentSkill. Default <code>{}</code>.</td>
 <td>string | null</td>
 <td>no</td>
 <td>Overrides the auto-generated prompt when set. Default
-<code>null</code>.</td>
+<code>null</code>. Stored and used at runtime, but not echoed by
+<code>GET /api/v1/personas/{persona_id}</code> — the detail response omits
+it.</td>
 </tr>
 </tbody>
 </table>

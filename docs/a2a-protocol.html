@@ -136,6 +136,11 @@ declares:</p>
 <code>f"{base_url}/a2a/{persona_id}/"</code> where <code>base_url</code>
 is taken from <code>API_PUBLIC_BASE_URL</code> if set, otherwise built
 from <code>API_HOST</code>/<code>API_PORT</code>.</li>
+<li><strong><code>version</code></strong> — the AgentCard version
+string, currently <code>"1.0.0"</code> for both the per-persona and
+aggregate cards. This is the card's own version and is independent of the
+API / package version (<code>0.2.0</code>) reported by
+<code>/health</code>.</li>
 <li><strong><code>capabilities</code></strong> —
 <code>streaming=True</code>, <code>state_transition_history=True</code>,
 <code>push_notifications=False</code>.</li>
