@@ -1,6 +1,13 @@
-"""A2A (Agent-to-Agent) protocol integration layer."""
+"""A2A protocol integration layer."""
 
-from persona_agent.a2a.agent_card import build_agent_card
-from persona_agent.a2a.executor import PersonaAgentExecutor
+from .cards import build_agent_card, build_aggregate_card, serialize_agent_card
+from .executor import PersonaAgentExecutor
+from .registry import A2ARegistry
 
-__all__ = ["PersonaAgentExecutor", "build_agent_card"]
+__all__ = [
+    "A2ARegistry",
+    "PersonaAgentExecutor",
+    "build_agent_card",
+    "build_aggregate_card",
+    "serialize_agent_card",
+]

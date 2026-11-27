@@ -1,96 +1,71 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Repository guide for working in `persona-agent`.
 
 ## Project
 
-AI persona agents built on Google A2A protocol with FastAPI REST API and MCP tool integration. Personas are defined as YAML/JSON files loaded from `examples/personas/`.
+Python service exposing persona agents over the A2A v1.0 protocol and a FastAPI REST API, with OpenAI-compatible LLM backends and MCP stdio tool support. Example personas live in `examples/personas/`.
 
 ## Commands
 
 ```bash
-# Install dependencies
 uv sync
-
-# Lint and format
 uv run ruff check .
-uv run ruff format .
+uv run ruff format --check .
+uv run pytest
 
-# CLI commands
-uv run persona-agent api              # Start API server
-uv run persona-agent list-personas    # List available personas
-uv run persona-agent agent-card       # Show A2A agent cards
-uv run persona-agent import-persona FILE  # Import persona file
+uv run persona-agent api
+uv run persona-agent list-personas
+uv run persona-agent agent-card [persona_id]
+uv run persona-agent import-persona FILE
 ```
 
 ## Architecture
 
-Four-layer structure under `src/persona_agent/`:
+Layered packages under `src/persona_agent/`:
 
-- **api/** — FastAPI routes, models, dependency injection, API-key auth. REST routes prefixed with `/api/v1`, A2A routes at `/a2a/`.
-- **a2a/** — A2A protocol integration: `PersonaAgentExecutor` (implements `AgentExecutor`), `AgentCard` builder. Each persona is an A2A agent.
-- **llm/** — LLM client abstraction with `OpenAICompatibleClient` using the `openai` SDK directly. Supports any OpenAI-compatible provider.
-- **mcp/** — `DirectMCPManager` using the `mcp` library directly for stdio server lifecycle, tool loading, and execution.
-
-## Key Files
-
-- `api/server.py` — FastAPI app factory and lifespan; wires MCP, persona manager, A2A registry, auth dependency, CORS, and exception handlers.
-- `api/agent_factory.py` — `AgentFactory` + `AgentSession`; creates `PersonaAgentExecutor` instances and tracks sessions with wall-clock timestamps.
-- `api/persona_manager.py` — `Persona` Pydantic model (id pattern `^[a-z0-9_-]{1,64}$`) and `PersonaManager` filesystem I/O with path-traversal defense.
-- `api/auth.py` — `make_api_key_dependency`; `secrets.compare_digest` in a full allow-list loop. Returns 401 on miss, 503 if auth is enabled with no allowed keys.
-- `api/routes/a2a.py` — `A2ARegistry`; each persona is mounted as an independent ASGI sub-app via `A2AFastAPIApplication.build()`.
-- `a2a/executor.py` — Core agent logic: shared `chat()` entrypoint, per-context `asyncio.Lock`, LRU history (200 contexts), `MAX_TOOL_ITERATIONS=10`.
-- `llm/client.py` — Abstract `LLMClient` + `OpenAICompatibleClient`; `from_config()` reads `default_model` + `model_configs`.
-- `mcp/direct_mcp.py` — Direct MCP stdio management with per-server retries (`MAX_RETRIES=3`) and `${VAR_NAME}` env substitution.
+- `__init__.py` — Package version from `importlib.metadata`.
+- `config.py` — `Settings`, `load_settings()`, `load_llm_config()`.
+- `personas/` — `Persona` Pydantic model (`id` pattern `^[a-z0-9_-]{1,64}$`), `build_system_prompt()`, and `PersonaRepository` filesystem I/O with path-traversal checks.
+- `llm/` — `LLMClient` ABC, `OpenAICompatibleClient` (`openai>=3.60.0`), `ChatResponse`, `ToolCall`.
+- `mcp/` — `MCPManager` and `MCPConnection` (`mcp>=2.3.0`, `mcp.Client`, `tool.input_schema`, `MAX_RETRIES=3`, `${VAR_NAME}` env substitution).
+- `a2a/` — A2A v1.0 (`a2a-sdk>=1.3.1`): `cards.py` (`AgentCard` Protobuf builders + `serialize_agent_card`), `executor.py` (`PersonaAgentExecutor` using `Task` + `TaskUpdater`, per-context `asyncio.Lock`, 200-entry LRU history, `MAX_TOOL_ITERATIONS=10`), `registry.py` (`A2ARegistry` mounting per-persona FastAPI sub-apps via `add_a2a_routes_to_fastapi` with `enable_v0_3_compat=True`).
+- `agents/` — `AgentService`, `AgentRecord`, `AgentSession` (wall-clock timestamps).
+- `api/` — Synchronous `create_app()` and `lifespan()` in `app.py`, `auth.py` (`make_api_key_dependency` with `secrets.compare_digest`), `dependencies.py` (`app.state`-backed), `schemas.py`, and `routes/` (`a2a.py`, `agents.py`, `personas.py`, `sessions.py`).
+- `cli.py` — Command-line interface.
 
 ## Configuration
 
-Precedence: environment variables > JSON config files > hardcoded defaults in `api/config.py`.
+Precedence: environment variables > JSON config files > `Settings` defaults (except `api_key`, which checks per-model and file-level values before `OPENAI_API_KEY`).
 
-Server env: `API_HOST` (default `127.0.0.1`), `API_PORT`, `API_DEBUG`, `API_PREFIX`, `API_PUBLIC_BASE_URL`.
-Auth/CORS env: `API_ENABLE_AUTH`, `API_KEY_HEADER`, `API_ALLOWED_KEYS` (CSV, blanks filtered), `API_ENABLE_CORS`, `API_ALLOWED_ORIGINS`.
-File env: `PERSONAS_DIR` (default `examples/personas`), `LLM_CONFIG_PATH` (`config/llm_config.json`), `MCP_CONFIG_PATH` (`config/mcp_config.json`).
-LLM env: `OPENAI_API_KEY`, `OPENAI_API_BASE` / `OPENAI_BASE_URL`, `DEFAULT_MODEL`.
+- Server: `API_HOST` (default `127.0.0.1`), `API_PORT`, `API_DEBUG`, `API_PREFIX`, `API_PUBLIC_BASE_URL`.
+- Auth/CORS: `API_ENABLE_AUTH`, `API_KEY_HEADER`, `API_ALLOWED_KEYS`, `API_ENABLE_CORS`, `API_ALLOWED_ORIGINS`.
+- Paths: `PERSONAS_DIR`, `LLM_CONFIG_PATH`, `MCP_CONFIG_PATH`.
+- LLM: `OPENAI_API_KEY`, `OPENAI_BASE_URL` / `OPENAI_API_BASE`, `DEFAULT_MODEL`.
 
-LLM credential precedence is field-specific and an exception to the env-first rule above: `api_key` is **file-first** (`OPENAI_API_KEY` is a fallback only when both the per-model and file-level keys are empty), while `api_base` is **env-first** (`OPENAI_BASE_URL` / `OPENAI_API_BASE` win over the file). The active client is built by `OpenAICompatibleClient.from_config()` from `llm_config.json`; `ApiConfig.openai_api_key` / `openai_api_base` are populated for inspection but do not construct the client. `DEFAULT_MODEL` sets `ApiConfig.default_model` (default `gpt-4o`, overridden by the file's `default_model` on load). See `docs/index.html`.
+## Endpoints
 
-## A2A Endpoints
-
-- `GET /.well-known/agent.json` — Aggregate agent card for all personas (public).
-- `GET /a2a/personas` — List all A2A persona agents (public).
-- `GET /a2a/{persona_id}/.well-known/agent-card.json` — Individual persona agent card (SDK sub-app).
-- `POST /a2a/{persona_id}/` — A2A JSON-RPC endpoint (SDK sub-app).
-
-A2A surfaces are public by protocol design. REST routes under `/api/v1` are gated by `verify_api_key` when `API_ENABLE_AUTH=true`.
-
-## Persona Schema
-
-Persona YAML/JSON files require only `name`. Optional fields: `id` (auto-generated if absent), `description`, `personal_background`, `language_style`, `knowledge_domains`, `interaction_samples`, `system_prompt`. The `Persona` Pydantic model (in `api/persona_manager.py`) constrains `id` to `^[a-z0-9_-]{1,64}$` and re-validates on save against path-traversal patterns.
-
-## MCP Config
-
-`config/mcp_config.json` supports both `"mcpServers"` (current) and `"services"` (legacy) section names. `${VAR_NAME}` in `command`, `args`, and `env` values is substituted from the process environment at load; missing variables expand to an empty string.
+- Public A2A: `GET /.well-known/agent-card.json`, `GET /.well-known/agent.json`, `GET /a2a/personas`, `GET /a2a/{persona_id}/.well-known/agent-card.json`, `POST /a2a/{persona_id}/`.
+- Protected REST (when `API_ENABLE_AUTH=true`): `/api/v1/personas`, `/api/v1/agents`, `/api/v1/sessions`.
+- Public Ops: `GET /health`, `GET /docs`, `GET /openapi.json`.
 
 ## Documentation
 
-- `README.md` — quick start and orientation.
-- `docs/index.html` — in-depth references (API, A2A, persona schema, configuration, MCP, auth, deployment, development, changelog). Update the matching `docs/*.html` file when changing behavior it documents.
+- `README.md` — quick start and navigation.
+- `CHANGELOG.md` — Keep a Changelog release history.
+- `docs/` — `api.md`, `a2a.md`, `mcp.md`, `personas.md`, `configuration.md`, `development.md`. Keep matching docs updated when changing documented behavior.
 
-## Git Workflow
+## Code Style & Workflow
 
-Fork-based: `origin` is your fork, `upstream` is `memenow/persona-agent`. PR to upstream.
-
-## Code Style
-
-- Python with type hints throughout.
-- PEP 8 via `ruff` (target-version py311, line-length 88, select E/F/W/I/UP/B/SIM, ignore E501/B008).
-- Async-first; `pytest-asyncio` in `asyncio_mode="auto"`.
-- Pydantic v2 only (`.model_dump()`, not `.dict()`).
+- Python 3.11+ with type hints and `Annotated[..., Depends(...)]`.
+- Ruff configured in `pyproject.toml` (`target-version = "py311"`, `line-length = 88`, `select = E/F/W/I/UP/B/SIM`, `ignore = E501`).
+- Async-first; `pytest-asyncio` in `asyncio_mode = "auto"`; Pydantic v2 APIs only.
+- Fork-based Git workflow: `origin` is personal fork, `upstream` is `memenow/persona-agent`.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **persona-agent** (768 symbols, 1246 relationships, 20 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **persona-agent**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
