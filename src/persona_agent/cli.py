@@ -1,128 +1,126 @@
-"""Command-line interface for the persona agent system.
-
-Provides commands for starting the API server, managing personas,
-and inspecting A2A agent cards.
-"""
+"""Command-line interface for running the server and inspecting personas."""
 
 import argparse
 import json
-import os
+import sys
+from pathlib import Path
 
 import yaml
 
-from persona_agent.api.config import load_config
-from persona_agent.api.persona_manager import PersonaManager
-from persona_agent.api.server import run_server
+from persona_agent.a2a.cards import build_agent_card, serialize_agent_card
+from persona_agent.api.app import run_server
+from persona_agent.config import load_settings
+from persona_agent.personas.repository import PersonaRepository
 
 
-def start_api():
-    """Start the API server."""
-    config = load_config()
-    print(f"Starting Persona Agent API server at {config.host}:{config.port}")
-    print(f"  REST API: http://{config.host}:{config.port}{config.api_prefix}/")
-    print(f"  A2A endpoint: http://{config.host}:{config.port}/a2a/")
-    print(f"  Agent card: http://{config.host}:{config.port}/.well-known/agent.json")
-    run_server(config)
+def start_api() -> None:
+    settings = load_settings()
+    base_url = settings.resolve_public_base_url()
+    print(f"Starting Persona Agent API server at {settings.host}:{settings.port}")
+    print(f"  REST API: {base_url}{settings.api_prefix}/")
+    print(f"  A2A endpoint: {base_url}/a2a/")
+    print(f"  Agent card: {base_url}/.well-known/agent-card.json")
+    run_server(settings)
 
 
-def list_personas():
-    """List all available personas."""
-    config = load_config()
-    persona_manager = PersonaManager(config.personas_dir)
-
-    personas = persona_manager.list_personas()
+def list_personas() -> None:
+    settings = load_settings()
+    repo = PersonaRepository(settings.personas_dir)
+    personas = repo.list_personas()
     if not personas:
         print("No personas found.")
         return
 
     print(f"Found {len(personas)} personas:")
-    for i, p in enumerate(personas, 1):
-        print(f"  {i}. {p['id']}: {p['name']} - {p['description']}")
+    for index, persona in enumerate(personas, 1):
+        print(f"  {index}. {persona.id}: {persona.name} - {persona.description}")
 
 
-def import_persona(file_path: str):
-    """Import a persona from a file."""
-    if not os.path.exists(file_path):
-        print(f"Error: File {file_path} does not exist.")
-        return
+def import_persona(file_path: str) -> None:
+    path = Path(file_path)
+    if not path.is_file():
+        print(f"Error: File {file_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
 
-    config = load_config()
-    persona_manager = PersonaManager(config.personas_dir)
+    if path.suffix not in (".json", ".yaml", ".yml"):
+        print("Error: File must be a JSON or YAML file.", file=sys.stderr)
+        sys.exit(1)
+
+    settings = load_settings()
+    repo = PersonaRepository(settings.personas_dir)
 
     try:
-        with open(file_path, encoding="utf-8") as f:
-            if file_path.endswith(".json"):
-                persona_data = json.load(f)
-            elif file_path.endswith((".yaml", ".yml")):
-                persona_data = yaml.safe_load(f)
-            else:
-                print("Error: File must be a JSON or YAML file.")
-                return
+        text = path.read_text(encoding="utf-8")
+        persona_data = (
+            json.loads(text) if path.suffix == ".json" else yaml.safe_load(text)
+        )
+        if not isinstance(persona_data, dict):
+            raise ValueError("Persona file must contain a JSON/YAML object.")
 
-        persona = persona_manager.add_persona(persona_data)
-        saved_path = persona_manager.save_persona(persona, format="json")
-        print(f"Successfully imported persona: {persona.name} (ID: {persona.id})")
+        persona = repo.add_persona(persona_data)
+        saved_path = repo.save_persona(persona, fmt="json")
+        print(f"Imported persona: {persona.name} (ID: {persona.id})")
         print(f"Saved to: {saved_path}")
-    except Exception as e:
-        print(f"Error importing persona: {e}")
+    except Exception as exc:
+        print(f"Error importing persona: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
-def show_agent_card(persona_id: str | None = None):
-    """Print the A2A agent card for a persona (or aggregate card)."""
-    from persona_agent.a2a.agent_card import build_agent_card
-
-    config = load_config()
-    persona_manager = PersonaManager(config.personas_dir)
+def show_agent_card(persona_id: str | None = None) -> None:
+    settings = load_settings()
+    repo = PersonaRepository(settings.personas_dir)
+    base_url = settings.resolve_public_base_url()
 
     if persona_id:
-        p = persona_manager.get_persona(persona_id)
-        if not p:
-            print(f"Error: Persona '{persona_id}' not found.")
-            return
+        persona = repo.get_persona(persona_id)
+        if persona is None:
+            print(f"Error: Persona '{persona_id}' not found.", file=sys.stderr)
+            sys.exit(1)
         card = build_agent_card(
-            persona_id=p.id,
-            name=p.name,
-            description=p.description,
-            knowledge_domains=p.knowledge_domains or None,
+            persona_id=persona.id,
+            name=persona.name,
+            description=persona.description,
+            knowledge_domains=persona.knowledge_domains or None,
+            base_url=base_url,
         )
-        print(json.dumps(card.model_dump(exclude_none=True), indent=2))
-    else:
-        personas = persona_manager.list_personas()
-        if not personas:
-            print("No personas found.")
-            return
-        for p_info in personas:
-            p = persona_manager.get_persona(p_info["id"])
-            if p:
-                card = build_agent_card(
-                    persona_id=p.id,
-                    name=p.name,
-                    description=p.description,
-                    knowledge_domains=p.knowledge_domains or None,
-                )
-                print(f"--- {p.name} ({p.id}) ---")
-                print(json.dumps(card.model_dump(exclude_none=True), indent=2))
-                print()
+        print(json.dumps(serialize_agent_card(card), indent=2))
+        return
+
+    personas = repo.list_personas()
+    if not personas:
+        print("No personas found.")
+        return
+
+    for persona in personas:
+        card = build_agent_card(
+            persona_id=persona.id,
+            name=persona.name,
+            description=persona.description,
+            knowledge_domains=persona.knowledge_domains or None,
+            base_url=base_url,
+        )
+        print(f"--- {persona.name} ({persona.id}) ---")
+        print(json.dumps(serialize_agent_card(card), indent=2))
+        print()
 
 
-def main():
-    """Execute the command-line interface."""
+def main() -> None:
     parser = argparse.ArgumentParser(description="Persona Agent CLI")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     subparsers.add_parser("api", help="Start the API server")
-    subparsers.add_parser("list-personas", help="List all available personas")
+    subparsers.add_parser("list-personas", help="List available personas")
 
     import_parser = subparsers.add_parser(
-        "import-persona", help="Import a persona from a file"
+        "import-persona", help="Import a JSON or YAML persona file"
     )
     import_parser.add_argument("file", help="Path to the persona file (JSON or YAML)")
 
     card_parser = subparsers.add_parser(
-        "agent-card", help="Show A2A agent card for a persona"
+        "agent-card", help="Print A2A v1.0 agent card JSON"
     )
     card_parser.add_argument(
-        "persona_id", nargs="?", default=None, help="Persona ID (omit for all)"
+        "persona_id", nargs="?", default=None, help="Persona ID (omit to show all)"
     )
 
     args = parser.parse_args()

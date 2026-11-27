@@ -1,26 +1,14 @@
 # Persona Agent
 
-A Python service that exposes AI personas as
-[Google A2A protocol](https://github.com/google/A2A) agents. Each persona
-is also reachable through a REST API for management and direct chat.
+Python service exposing character personas over the [A2A v1.0 protocol](https://github.com/a2aproject/A2A) and a FastAPI REST API, with OpenAI-compatible LLM backends and MCP stdio tool execution.
 
-Built directly on `a2a-sdk`, the `openai` SDK, and the `mcp` library —
-no framework wrappers in between.
+## Capabilities
 
-## Features
-
-- **A2A-native personas**: every persona is mounted as an independent
-  A2A ASGI sub-app with discoverable agent cards and a JSON-RPC endpoint.
-- **REST API**: CRUD for personas, agents, and sessions, with file
-  upload support.
-- **MCP tool integration**: stdio MCP servers are loaded at startup; the
-  LLM can call their tools mid-conversation.
-- **OpenAI-compatible LLMs**: works with OpenAI, Azure OpenAI, Ollama,
-  vLLM, LiteLLM, or any other OpenAI-API-compatible provider.
-- **YAML / JSON personas**: declarative character files with background,
-  language style, knowledge domains, and interaction samples.
-- **Operations-friendly**: opt-in API key auth, configurable CORS,
-  health endpoint exposing effective config.
+- **A2A v1.0 agents**: Each persona is mounted as an isolated ASGI sub-app with an A2A v1.0 AgentCard and JSON-RPC endpoint (with optional v0.3 wire compatibility enabled).
+- **REST API**: CRUD endpoints for personas, runtime agents, conversation sessions, and YAML/JSON persona uploads under `/api/v1`.
+- **MCP tools**: Connects to configured stdio MCP servers at startup and exposes their tools to the LLM tool-calling loop.
+- **OpenAI-compatible models**: Works with OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM, or any endpoint implementing OpenAI Chat Completions.
+- **Declarative personas**: YAML or JSON character definitions with background, language style, knowledge domains, and optional custom system prompts.
 
 ## Quick start
 
@@ -31,130 +19,78 @@ uv sync
 uv run persona-agent api
 ```
 
-The server binds to `http://127.0.0.1:8000` by default. Swagger UI is at
-`/docs`, the aggregate A2A agent card at `/.well-known/agent.json`, the
-REST surface under `/api/v1`.
+By default the server binds to `http://127.0.0.1:8000`:
 
-Set your LLM credentials in `config/llm_config.json` (see
-[docs/configuration.html](docs/configuration.html)):
+- OpenAPI UI: `/docs`
+- Health probe: `/health`
+- Aggregate A2A card: `/.well-known/agent-card.json` (legacy alias: `/.well-known/agent.json`)
+- REST surface: `/api/v1`
 
-```json
-{
-  "default_model": "gpt-4o-mini",
-  "model_configs": [
-    {
-      "name": "gpt-4o-mini",
-      "model": "gpt-4o-mini",
-      "api_key": "sk-...",
-      "api_base": "https://api.openai.com/v1",
-      "temperature": 0.7,
-      "max_tokens": 4000
-    }
-  ]
-}
-```
-
-For a quick start, leave the `api_key` fields empty in the file and
-export `OPENAI_API_KEY`. The LLM client falls back to that environment
-variable only when both the per-model and file-level `api_key` are
-empty — non-empty file values take precedence. The base URL resolves the
-other way around: `OPENAI_BASE_URL` / `OPENAI_API_BASE` override the
-file's `api_base` when set. See
-[docs/configuration.html](docs/configuration.html) for the full cascade.
+Configure LLM credentials in `config/llm_config.json` or export `OPENAI_API_KEY` (with empty `api_key` values in the file). See [docs/configuration.md](docs/configuration.md) for the exact precedence rules.
 
 ## CLI
 
 ```bash
-uv run persona-agent api                    # start the API server
-uv run persona-agent list-personas          # list personas from PERSONAS_DIR
-uv run persona-agent agent-card             # dump A2A agent cards
-uv run persona-agent agent-card trump       # dump a single persona's card
-uv run persona-agent import-persona FILE    # import a JSON/YAML persona file
+uv run persona-agent api                  # start the API server
+uv run persona-agent list-personas        # list personas from PERSONAS_DIR
+uv run persona-agent agent-card           # print A2A v1.0 agent cards
+uv run persona-agent agent-card trump     # print one persona's agent card
+uv run persona-agent import-persona FILE  # import a JSON/YAML persona file
 ```
 
-## Endpoints (overview)
+## Endpoints
 
-| Surface | Path | Notes |
-|---------|------|-------|
-| REST | `/api/v1/personas`, `/agents`, `/sessions` | CRUD; details in [docs/api-reference.html](docs/api-reference.html). |
-| REST | `POST /api/v1/personas/upload` | Upload a YAML/JSON persona file. |
-| REST | `GET /api/v1/sessions/{id}/messages`, `POST .../messages` | Read history; send a message and get a reply. |
-| A2A | `GET /.well-known/agent.json` | Aggregate card for every persona. |
-| A2A | `GET /a2a/personas` | List registered A2A agents. |
-| A2A | `GET /a2a/{persona_id}/.well-known/agent-card.json` | Per-persona agent card. |
-| A2A | `POST /a2a/{persona_id}/` | A2A JSON-RPC endpoint. |
-| Ops | `GET /health` | Public health/effective-config probe. |
-| Ops | `GET /docs`, `/openapi.json` | Swagger UI / OpenAPI schema. |
-
-REST routes are protected by an opt-in API-key dependency (off by
-default). A2A surfaces are public by protocol design. See
-[docs/authentication.html](docs/authentication.html).
-
-## Persona example
-
-```yaml
-name: Donald Trump
-description: 45th President of the United States…
-personal_background:
-  birth: June 14, 1946, Queens, New York City, USA
-language_style:
-  tone: Assertive, direct, hyperbolic
-  common_phrases: ["Believe me", "Tremendous"]
-knowledge_domains:
-  politics: [American politics, Immigration policy, Trade policy]
-interaction_samples:
-  - type: quote
-    content: "We will make America strong again."
-```
-
-The persona schema, including ID rules and the system-prompt generator,
-is documented in [docs/persona-schema.html](docs/persona-schema.html).
+| Surface | Path | Auth |
+|---------|------|------|
+| REST | `/api/v1/personas`, `/api/v1/agents`, `/api/v1/sessions` | Optional API key |
+| REST | `POST /api/v1/personas/upload` | Optional API key |
+| REST | `GET/POST /api/v1/sessions/{id}/messages` | Optional API key |
+| A2A | `GET /.well-known/agent-card.json`, `GET /.well-known/agent.json` | Public |
+| A2A | `GET /a2a/personas` | Public |
+| A2A | `GET /a2a/{persona_id}/.well-known/agent-card.json` | Public |
+| A2A | `POST /a2a/{persona_id}/` | Public |
+| Ops | `GET /health`, `GET /docs`, `GET /openapi.json` | Public |
 
 ## Project layout
 
-```
+```text
 persona-agent/
-├── config/                          LLM and MCP JSON configs
-├── docs/                            In-depth documentation
-├── examples/personas/               Example persona files
+├── config/                    LLM and MCP JSON configuration files
+├── docs/                      Reference documentation
+├── examples/personas/         Example persona definitions
 ├── src/persona_agent/
-│   ├── a2a/        agent_card.py, executor.py
-│   ├── api/        routes/, agent_factory.py, auth.py, config.py,
-│   │               dependencies.py, models.py, persona_manager.py, server.py
-│   ├── llm/        client.py (LLMClient + OpenAICompatibleClient)
-│   ├── mcp/        direct_mcp.py (DirectMCPManager)
-│   └── cli.py
-├── tests/                           pytest suite
+│   ├── __init__.py            Package version
+│   ├── config.py              Settings and config file loaders
+│   ├── cli.py                 Command-line entry point
+│   ├── personas/              Persona model, prompt builder, file repository
+│   ├── llm/                   LLMClient abstraction and OpenAI client
+│   ├── mcp/                   MCPManager (stdio client lifecycle)
+│   ├── a2a/                   A2A v1.0 cards, executor, and sub-app registry
+│   ├── agents/                Runtime AgentService and AgentSession store
+│   └── api/                   FastAPI app factory, auth, schemas, and routes
+├── tests/                     pytest suite
+├── CHANGELOG.md
 └── pyproject.toml
 ```
 
 ## Documentation
 
-| File | What it covers |
-|------|----------------|
-| [docs/index.html](docs/index.html) | Documentation index. |
-| [docs/api-reference.html](docs/api-reference.html) | REST endpoints with payloads and status codes. |
-| [docs/a2a-protocol.html](docs/a2a-protocol.html) | A2A integration, agent cards, mount strategy, executor behavior. |
-| [docs/persona-schema.html](docs/persona-schema.html) | Persona fields, ID rules, examples, prompt generator. |
-| [docs/configuration.html](docs/configuration.html) | Environment variables, `llm_config.json`, `mcp_config.json`. |
-| [docs/mcp-integration.html](docs/mcp-integration.html) | MCP stdio lifecycle, env-var substitution, tool execution. |
-| [docs/authentication.html](docs/authentication.html) | API keys, CORS, public vs protected routes. |
-| [docs/deployment.html](docs/deployment.html) | Bind, reverse proxy, logging, containerization. |
-| [docs/development.html](docs/development.html) | Setup, lint, format, test, project layout. |
-| [docs/changelog.html](docs/changelog.html) | Notable changes by pull request. |
+| Document | Scope |
+|----------|-------|
+| [docs/api.md](docs/api.md) | REST endpoints, payloads, status codes, API key auth, and CORS |
+| [docs/a2a.md](docs/a2a.md) | A2A v1.0 integration, AgentCard structure, v0.3 compat, and executor |
+| [docs/mcp.md](docs/mcp.md) | MCP v2 stdio lifecycle, env substitution, and tool bridging |
+| [docs/personas.md](docs/personas.md) | Persona file schema, ID constraints, and prompt rendering |
+| [docs/configuration.md](docs/configuration.md) | Environment variables, JSON configs, deployment, and containerization |
+| [docs/development.md](docs/development.md) | Local setup, formatting, linting, testing, and module conventions |
 
 ## Development
 
 ```bash
 uv sync
 uv run ruff check .
-uv run ruff format .
+uv run ruff format --check .
 uv run pytest
 ```
 
-Python 3.11+ required. Full development notes in
-[docs/development.html](docs/development.html).
-
-## License
-
-See [LICENSE](LICENSE).
+Requires Python 3.11+. See [LICENSE](LICENSE).

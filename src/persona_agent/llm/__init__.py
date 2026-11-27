@@ -1,5 +1,5 @@
-"""LLM client abstraction layer."""
+"""LLM client abstraction and OpenAI-compatible implementation."""
 
-from persona_agent.llm.client import ChatResponse, LLMClient, OpenAICompatibleClient
+from .client import ChatResponse, LLMClient, OpenAICompatibleClient, ToolCall
 
-__all__ = ["ChatResponse", "LLMClient", "OpenAICompatibleClient"]
+__all__ = ["ChatResponse", "LLMClient", "OpenAICompatibleClient", "ToolCall"]

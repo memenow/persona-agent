@@ -1,5 +1,5 @@
-"""Model Context Protocol (MCP) integration package."""
+"""Model Context Protocol (MCP) client management."""
 
-from .direct_mcp import DirectMCPManager, mcp_tools_to_openai_functions
+from .manager import MCPConnection, MCPManager, mcp_tools_to_openai_functions
 
-__all__ = ["DirectMCPManager", "mcp_tools_to_openai_functions"]
+__all__ = ["MCPConnection", "MCPManager", "mcp_tools_to_openai_functions"]
